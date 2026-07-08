@@ -74,16 +74,27 @@ export const draftApprovalCallback = async ({ ack, body, client, logger }) => {
       const titleLine = frontmatterMatch?.[1].match(/^title:\s*(.+)$/m);
       const title = titleLine?.[1].trim();
 
+      // Correction drafts carry an `edit_of: <docSource>` frontmatter field
+      // (see draftCorrection() in agent/draft-generator.js). Those must
+      // overwrite the doc they're correcting, not land under a new slug —
+      // otherwise the stale/wrong original stays live and the "correction"
+      // just becomes an orphaned second document.
+      const editOfLine = frontmatterMatch?.[1].match(/^edit_of:\s*(.+)$/m);
+      const editOf = editOfLine?.[1].trim();
+      const targetFileName = editOf || `${slug}.md`;
+
       fs.mkdirSync(DOCS_DIR, { recursive: true });
-      fs.renameSync(draftPath, path.join(DOCS_DIR, `${slug}.md`));
-      await ingestText(`${slug}.md`, body_);
-      recordAuthorAsOwner(slug, title, body.user?.id);
+      fs.renameSync(draftPath, path.join(DOCS_DIR, targetFileName));
+      await ingestText(targetFileName, body_);
+      recordAuthorAsOwner(editOf ? editOf.replace(/\.md$/, '') : slug, title, body.user?.id);
 
       await client.chat.update({
         channel: channel_id,
         ts: message_ts,
         text: 'Draft approved and added to the knowledge base.',
-        blocks: [{ type: 'section', text: { type: 'mrkdwn', text: `:white_check_mark: Approved — *${slug}* is now live in the knowledge base.` } }],
+        blocks: [{ type: 'section', text: { type: 'mrkdwn', text: editOf
+          ? `:white_check_mark: Approved — *${targetFileName}* was updated in the knowledge base.`
+          : `:white_check_mark: Approved — *${slug}* is now live in the knowledge base.` } }],
       });
     } else {
       fs.unlinkSync(draftPath);

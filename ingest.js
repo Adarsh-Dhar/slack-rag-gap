@@ -39,6 +39,17 @@ export async function ingestText(fileName, text) {
       embeddingFunction: noopEmbeddingFunction,
     });
 
+    // Clear any chunks already stored under this filename first. Without
+    // this, re-ingesting an existing doc (e.g. an approved correction that
+    // overwrites docs/handbook.md) either fails on duplicate ids or, if the
+    // new content chunks to fewer pieces than before, leaves old trailing
+    // chunks behind that still get retrieved alongside the corrected ones.
+    try {
+      await collection.delete({ where: { source: fileName } });
+    } catch (error) {
+      console.warn(`No existing chunks to clear for ${fileName} (or delete failed): ${error.message}`);
+    }
+
     for (const [i, chunk] of chunks.entries()) {
       const embedding = await openai.embeddings.create({ model: EMBEDDING_MODEL, input: chunk });
       await collection.add({

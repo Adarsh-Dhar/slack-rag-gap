@@ -69,7 +69,7 @@ export async function threadReplyCallback({ event, client, logger }) {
       channel,
       message_ts: thread_ts,
     });
-    draft = await draftCorrection({ docSource, correctionText, permalink });
+    draft = await draftCorrection({ docSource, correctionText: correctedText, permalink });
   } catch (err) {
     logger.error(`threadReplyCallback: draftCorrection failed for "${docSource}": ${err.message}`);
     return;

@@ -22,7 +22,7 @@ describe('usage-ledger', () => {
         citedCount: fc.nat(),
         followUpCount: fc.nat(),
         correctionCount: fc.nat(),
-        lastCited: fc.date({ min: new Date(0), max: new Date('2099-01-01') }).map(d => d.toISOString()),
+        lastCited: fc.date({ min: new Date(0), max: new Date('2099-01-01'), noInvalidDate: true }).map(d => d.toISOString()),
       }),
       (entry) => {
         const ledger = {
