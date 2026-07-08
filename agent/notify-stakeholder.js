@@ -46,6 +46,12 @@ export async function notifyStakeholder(client, draft, userId, reason) {
           },
           {
             type: 'button',
+            text: { type: 'plain_text', text: 'Edit' },
+            action_id: 'draft_edit',
+            value: draft.slug,
+          },
+          {
+            type: 'button',
             text: { type: 'plain_text', text: 'Reject' },
             style: 'danger',
             action_id: 'draft_reject',
