@@ -29,7 +29,7 @@
     "chromadb": "^3.5.0",
     "dotenv": "~17.4.2",
     "openai": "^6.45.0",
-    "pdf-parse": "^2.4.5"
+    "pdf-parse": "^1.1.1"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.2",
