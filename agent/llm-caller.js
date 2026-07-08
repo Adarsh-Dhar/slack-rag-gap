@@ -66,6 +66,7 @@ export async function callLLM(streamer, prompts) {
     finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason;
 
     if (delta?.content) {
+      console.log(`[DEBUG] Streaming content: ${delta.content}`);
       await streamer.append({ markdown_text: delta.content });
     }
 
@@ -81,6 +82,8 @@ export async function callLLM(streamer, prompts) {
       }
     }
   }
+
+  console.log(`[DEBUG] Stream finished. finishReason: ${finishReason}, toolCalls: ${toolCalls.length}`);
 
   const toolCalls = Object.values(toolCallAccumulator);
 

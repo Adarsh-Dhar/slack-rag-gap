@@ -8,7 +8,8 @@
     "check": "npx tsc --checkJs --noEmit --esModuleInterop --target esnext --module nodenext --moduleResolution nodenext app.js",
     "start": "node app.js",
     "lint": "npx @biomejs/biome check *.js agent/ listeners/",
-    "lint:fix": "npx @biomejs/biome check --write *.js agent/ listeners/"
+    "lint:fix": "npx @biomejs/biome check --write *.js agent/ listeners/",
+    "gap-detect": "node gap-detect.js"
   },
   "author": "Slack Technologies, LLC",
   "license": "MIT",

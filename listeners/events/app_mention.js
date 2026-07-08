@@ -15,9 +15,11 @@ import { feedbackBlock } from '../views/feedback_block.js';
  */
 export const appMentionCallback = async ({ event, client, logger, say }) => {
   try {
+    console.log('[DEBUG] app_mention event received:', JSON.stringify(event, null, 2));
     const { channel, text, team, user } = event;
     const thread_ts = event.thread_ts || event.ts;
 
+    console.log('[DEBUG] Setting status to thinking...');
     await client.assistant.threads.setStatus({
       channel_id: channel,
       thread_ts: thread_ts,
@@ -31,6 +33,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       ],
     });
 
+    console.log('[DEBUG] Creating chat stream...');
     const streamer = client.chatStream({
       channel: channel,
       recipient_team_id: team,
@@ -45,10 +48,13 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       },
     ];
 
+    console.log('[DEBUG] Calling LLM...');
     await callLLM(streamer, prompts);
 
+    console.log('[DEBUG] Stopping stream...');
     await streamer.stop({ blocks: [feedbackBlock] });
   } catch (e) {
+    console.error('[DEBUG] Error in app_mention:', e);
     logger.error(`Failed to handle a user message event: ${e}`);
     await say(`:warning: Something went wrong! (${e})`);
   }
