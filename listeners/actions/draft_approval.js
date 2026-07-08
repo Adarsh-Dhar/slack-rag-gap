@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { ingestFile } from '../../ingest.js';
+import { ingestText } from '../../ingest.js';
 
 const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');
 const DOCS_DIR = path.join(process.cwd(), 'docs');
@@ -23,7 +23,7 @@ export const draftApprovalCallback = async ({ ack, body, client, logger }) => {
     const slug = action.value;
     const channel_id = body.channel?.id;
     const message_ts = body.message?.ts;
-    const draftPath = path.join(DRAFTS_DIR, `${slug}.pdf`);
+    const draftPath = path.join(DRAFTS_DIR, `${slug}.md`);
 
     if (!fs.existsSync(draftPath)) {
       await client.chat.postMessage({ channel: channel_id, thread_ts: message_ts, text: 'Draft not found — it may have already been handled.' });
@@ -31,10 +31,12 @@ export const draftApprovalCallback = async ({ ack, body, client, logger }) => {
     }
 
     if (action.action_id === 'draft_approve') {
-      const livePath = path.join(DOCS_DIR, `${slug}.pdf`);
+      const text = fs.readFileSync(draftPath, 'utf-8');
+      const body_ = text.replace(/^---\n[\s\S]*?\n---\n\n?/, ''); // strip frontmatter before ingesting
+
       fs.mkdirSync(DOCS_DIR, { recursive: true });
-      fs.renameSync(draftPath, livePath);
-      await ingestFile(livePath); // same PDF ingestion ingest.js already uses — no format-specific code needed
+      fs.renameSync(draftPath, path.join(DOCS_DIR, `${slug}.md`));
+      await ingestText(`${slug}.md`, body_);
 
       await client.chat.update({
         channel: channel_id,

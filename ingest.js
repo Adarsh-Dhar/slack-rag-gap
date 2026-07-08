@@ -3,20 +3,17 @@ import fs from 'fs';
 import path from 'path';
 import { ChromaClient } from 'chromadb';
 import { OpenAI } from 'openai';
-import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
-
-const __filename = fileURLToPath(import.meta.url);
-const require = createRequire(__filename);
-const pdf = require('pdf-parse');
 
 const openai = new OpenAI({
   apiKey: process.env.GITHUB_TOKEN,
   baseURL: 'https://models.github.ai/inference',
 });
 
-// Force in-memory mode to avoid corrupted data issues
-const chroma = new ChromaClient();
+// Use ChromaDB in-memory mode (no persistent storage)
+// Data will be lost on restart, but avoids SQLite permission issues
+const chroma = new ChromaClient({
+  path: null,
+});
 const DOCS_DIR = path.join(process.cwd(), 'docs');
 const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
@@ -28,28 +25,26 @@ const noopEmbeddingFunction = {
   },
 };
 
-function chunkText(text, size = 1000) {
+export function chunkText(text, size = 1000) {
   return text.match(new RegExp(`.{1,${size}}`, 'gs')) || [];
 }
 
-export async function ingestFile(filePath) {
+/**
+ * Chunks a file's text, embeds each chunk, and upserts it into the `docs`
+ * collection under that filename. Shared by ingestFile() below and by the
+ * gap-detect draft-approval flow, which ingests an approved stub the moment
+ * it's approved (see listeners/actions/draft_approval.js).
+ */
+export async function ingestText(fileName, text) {
   try {
-    const buffer = fs.readFileSync(filePath);
-    const data = await pdf(buffer);
-    const text = data.text;
     const chunks = chunkText(text);
-
     const collection = await chroma.getOrCreateCollection({
       name: 'docs',
       embeddingFunction: noopEmbeddingFunction,
     });
-    const fileName = path.basename(filePath);
 
     for (const [i, chunk] of chunks.entries()) {
-      const embedding = await openai.embeddings.create({
-        model: EMBEDDING_MODEL,
-        input: chunk,
-      });
+      const embedding = await openai.embeddings.create({ model: EMBEDDING_MODEL, input: chunk });
       await collection.add({
         ids: [`${fileName}-${i}`],
         embeddings: [embedding.data[0].embedding],
@@ -57,29 +52,49 @@ export async function ingestFile(filePath) {
         metadatas: [{ source: fileName }],
       });
     }
-    console.log(`Ingested ${chunks.length} chunks from ${fileName}`);
+    return chunks.length;
+  } catch (error) {
+    console.error(`ChromaDB error during ingestion of ${fileName}:`, error.message);
+    throw error;
+  }
+}
+
+export async function ingestFile(filePath) {
+  try {
+    const text = fs.readFileSync(filePath, 'utf-8');
+    const fileName = path.basename(filePath);
+    const count = await ingestText(fileName, text);
+    console.log(`Ingested ${count} chunks from ${fileName}`);
   } catch (error) {
     console.error(`Failed to ingest ${filePath}: ${error.message}`);
-    // Skip corrupted files instead of crashing
+    // Skip files that fail ingestion instead of crashing
   }
 }
 
 async function main() {
   if (!fs.existsSync(DOCS_DIR)) {
-    console.error(`No docs/ folder found at ${DOCS_DIR}. Create it and add PDFs to ingest.`);
-    process.exit(1);
+    console.warn(`No docs/ folder found at ${DOCS_DIR}. Create it and add Markdown files to ingest.`);
+    return;
   }
 
-  const files = fs.readdirSync(DOCS_DIR).filter((f) => f.toLowerCase().endsWith('.pdf'));
+  const files = fs.readdirSync(DOCS_DIR).filter((f) => f.toLowerCase().endsWith('.md'));
 
   if (files.length === 0) {
-    console.error(`No PDFs found in ${DOCS_DIR}. Add at least one .pdf file and rerun.`);
-    process.exit(1);
+    console.warn(`No .md files found in ${DOCS_DIR}. Add at least one .md file and rerun.`);
+    return;
   }
 
+  console.log(`Attempting to ingest ${files.length} file(s)...`);
+  let successCount = 0;
   for (const file of files) {
-    await ingestFile(path.join(DOCS_DIR, file));
+    try {
+      await ingestFile(path.join(DOCS_DIR, file));
+      successCount++;
+    } catch (error) {
+      console.error(`Failed to ingest ${file}: ${error.message}`);
+    }
   }
+  console.log(`Successfully ingested ${successCount}/${files.length} file(s)`);
 }
 
 main();
