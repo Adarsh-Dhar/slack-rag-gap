@@ -5,9 +5,13 @@ import pdf from 'pdf-parse';
 import { ChromaClient } from 'chromadb';
 import { OpenAI } from 'openai';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({
+  apiKey: process.env.GITHUB_TOKEN,
+  baseURL: 'https://models.github.ai/inference',
+});
 const chroma = new ChromaClient();
 const DOCS_DIR = path.join(process.cwd(), 'docs');
+const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
 function chunkText(text, size = 1000) {
   return text.match(new RegExp(`.{1,${size}}`, 'gs')) || [];
@@ -23,7 +27,7 @@ async function ingestFile(filePath) {
 
   for (const [i, chunk] of chunks.entries()) {
     const embedding = await openai.embeddings.create({
-      model: 'text-embedding-3-small',
+      model: EMBEDDING_MODEL,
       input: chunk,
     });
     await collection.add({

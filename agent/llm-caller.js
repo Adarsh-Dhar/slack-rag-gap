@@ -2,27 +2,37 @@ import { OpenAI } from 'openai';
 import { rollDice, rollDiceDefinition } from './tools/dice.js';
 import { retrieveContext, logAnswer } from './rag.js';
 
-// OpenAI LLM client
+// OpenAI-compatible client pointed at GitHub Models
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.GITHUB_TOKEN,
+  baseURL: 'https://models.github.ai/inference',
 });
 
+const CHAT_MODEL = 'openai/gpt-4o-mini';
+
+// GitHub Models' endpoint speaks Chat Completions, not the Responses API,
+// so tool definitions must be wrapped in the nested `function` shape.
+const chatTools = [
+  {
+    type: 'function',
+    function: {
+      name: rollDiceDefinition.name,
+      description: rollDiceDefinition.description,
+      parameters: rollDiceDefinition.parameters,
+    },
+  },
+];
+
 /**
- * Stream an LLM response to prompts, grounded in retrieved document context.
+ * Stream a Chat Completions response, grounded in retrieved document context.
  *
  * @param {import("@slack/web-api").ChatStreamer} streamer - Slack chat stream
- * @param {any[]} prompts - OpenAI response messages
+ * @param {any[]} prompts - Chat Completions-style messages ({role, content})
  *
  * @see {@link https://docs.slack.dev/tools/bolt-js/web#sending-streaming-messages}
- * @see {@link https://platform.openai.com/docs/guides/text}
- * @see {@link https://platform.openai.com/docs/guides/streaming-responses}
- * @see {@link https://platform.openai.com/docs/guides/function-calling}
+ * @see {@link https://docs.github.com/en/rest/models/inference}
  */
 export async function callLLM(streamer, prompts) {
-  const toolCalls = [];
-
-  // Only retrieve on the first turn of a fresh call (i.e. real prompts array,
-  // not a recursive tool-call continuation which already has context baked in).
   const isFreshTurn = !prompts.some((p) => p.role === 'system');
   const latestUserMessage = [...prompts].reverse().find((p) => p.role === 'user');
 
@@ -35,97 +45,93 @@ export async function callLLM(streamer, prompts) {
 
     prompts.unshift({ role: 'system', content: systemContent });
 
-    // Track that an answer was produced, for gap-detection later.
     logAnswer(latestUserMessage.content, hasResults ? 'answered' : 'no_docs_found');
   }
 
-  const response = await openai.responses.create({
-    model: 'gpt-4o-mini',
-    input: prompts,
-    tools: [rollDiceDefinition],
+  const stream = await openai.chat.completions.create({
+    model: CHAT_MODEL,
+    messages: prompts,
+    tools: chatTools,
     tool_choice: 'auto',
     stream: true,
   });
 
-  for await (const event of response) {
-    // Stream markdown text from the LLM response as it arrives
-    if (event.type === 'response.output_text.delta' && event.delta) {
-      await streamer.append({
-        markdown_text: event.delta,
-      });
+  // Chat Completions streams tool-call *fragments* keyed by array index —
+  // unlike the Responses API, we have to manually accumulate them across chunks.
+  const toolCallAccumulator = {};
+  let finishReason = null;
+
+  for await (const chunk of stream) {
+    const delta = chunk.choices?.[0]?.delta;
+    finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason;
+
+    if (delta?.content) {
+      await streamer.append({ markdown_text: delta.content });
     }
 
-    // Save function calls for later computation and a new task is shown
-    if (event.type === 'response.output_item.done') {
-      if (event.item.type === 'function_call') {
-        toolCalls.push(event.item);
-
-        if (event.item.name === 'roll_dice') {
-          const args = JSON.parse(event.item.arguments);
-          await streamer.append({
-            chunks: [
-              {
-                type: 'task_update',
-                id: event.item.call_id,
-                title: `Rolling a ${args.count}d${args.sides}...`,
-                status: 'in_progress',
-              },
-            ],
-          });
+    if (delta?.tool_calls) {
+      for (const tc of delta.tool_calls) {
+        const idx = tc.index;
+        if (!toolCallAccumulator[idx]) {
+          toolCallAccumulator[idx] = { id: tc.id, name: '', arguments: '' };
         }
+        if (tc.id) toolCallAccumulator[idx].id = tc.id;
+        if (tc.function?.name) toolCallAccumulator[idx].name += tc.function.name;
+        if (tc.function?.arguments) toolCallAccumulator[idx].arguments += tc.function.arguments;
       }
     }
   }
 
-  // Perform tool calls and marks tasks as completed
-  if (toolCalls.length > 0) {
+  const toolCalls = Object.values(toolCallAccumulator);
+
+  if (finishReason === 'tool_calls' && toolCalls.length > 0) {
+    // Record the assistant's tool-call request in the conversation
+    prompts.push({
+      role: 'assistant',
+      tool_calls: toolCalls.map((call) => ({
+        id: call.id,
+        type: 'function',
+        function: { name: call.name, arguments: call.arguments },
+      })),
+    });
+
     for (const call of toolCalls) {
       if (call.name === 'roll_dice') {
-        const args = JSON.parse(call.arguments);
+        const args = JSON.parse(call.arguments || '{}');
 
-        prompts.push({
-          id: call.id,
-          call_id: call.call_id,
-          type: 'function_call',
-          name: 'roll_dice',
-          arguments: call.arguments,
+        await streamer.append({
+          chunks: [
+            {
+              type: 'task_update',
+              id: call.id,
+              title: `Rolling a ${args.count}d${args.sides}...`,
+              status: 'in_progress',
+            },
+          ],
         });
 
         const result = rollDice(args);
 
         prompts.push({
-          type: 'function_call_output',
-          call_id: call.call_id,
-          output: JSON.stringify(result),
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify(result),
         });
 
-        if (result.error != null) {
-          await streamer.append({
-            chunks: [
-              {
-                type: 'task_update',
-                id: call.call_id,
-                title: result.error,
-                status: 'error',
-              },
-            ],
-          });
-        } else {
-          await streamer.append({
-            chunks: [
-              {
-                type: 'task_update',
-                id: call.call_id,
-                title: result.description ?? 'Completed',
-                status: 'complete',
-              },
-            ],
-          });
-        }
+        await streamer.append({
+          chunks: [
+            {
+              type: 'task_update',
+              id: call.id,
+              title: result.error ?? result.description ?? 'Completed',
+              status: result.error ? 'error' : 'complete',
+            },
+          ],
+        });
       }
     }
 
-    // complete the llm response after making tool calls
+    // Continue the conversation now that tool results are available
     await callLLM(streamer, prompts);
   }
 }

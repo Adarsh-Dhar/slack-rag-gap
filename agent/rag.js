@@ -3,9 +3,13 @@ import path from 'path';
 import { ChromaClient } from 'chromadb';
 import { OpenAI } from 'openai';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({
+  apiKey: process.env.GITHUB_TOKEN,
+  baseURL: 'https://models.github.ai/inference',
+});
 const chroma = new ChromaClient();
 const COLLECTION_NAME = 'docs';
+const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
 // Phase-2 foundation: append every query + retrieval result to a local
 // JSON-lines log. Swap this for a real Postgres insert once you're past
@@ -25,7 +29,7 @@ function logQuery(entry) {
  */
 export async function retrieveContext(question) {
   const embeddingRes = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+    model: EMBEDDING_MODEL,
     input: question,
   });
 
