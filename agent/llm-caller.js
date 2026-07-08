@@ -72,7 +72,6 @@ export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
     finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason;
 
     if (delta?.content) {
-      console.log(`[DEBUG] Streaming content: ${delta.content}`);
       await streamer.append({ markdown_text: delta.content });
     }
 
@@ -90,8 +89,6 @@ export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
   }
 
   const toolCalls = Object.values(toolCallAccumulator);
-
-  console.log(`[DEBUG] Stream finished. finishReason: ${finishReason}, toolCalls: ${toolCalls.length}`);
 
   if (finishReason === 'tool_calls' && toolCalls.length > 0) {
     // Record the assistant's tool-call request in the conversation

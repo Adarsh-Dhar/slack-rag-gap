@@ -122,3 +122,30 @@ export function logAnswer(question, answer, { channel, thread_ts } = {}) {
     type: 'answer',
   });
 }
+
+/**
+ * Looks up the most recent retrieveContext log entry for a given thread.
+ * Returns the entry's question and sources, or null if no match is found.
+ *
+ * @param {string} channel
+ * @param {string} thread_ts
+ * @returns {{ question: string, sources: string[] } | null}
+ */
+export function getLastAnswerForThread(channel, thread_ts) {
+  if (!fs.existsSync(LOG_PATH)) return null;
+  const lines = fs.readFileSync(LOG_PATH, 'utf-8').trim().split('\n').filter(Boolean);
+  // Walk backwards to find the most recent matching entry that has sources
+  // (i.e. a retrieveContext entry, not a logAnswer 'answer' entry)
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let entry;
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch {
+      continue;
+    }
+    if (entry.channel === channel && entry.thread_ts === thread_ts && entry.type !== 'answer') {
+      return { question: entry.question, sources: entry.sources ?? [] };
+    }
+  }
+  return null;
+}

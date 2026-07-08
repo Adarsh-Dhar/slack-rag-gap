@@ -4,7 +4,10 @@ import path from 'path';
 import { WebClient } from '@slack/web-api';
 import { notifyStakeholder } from './agent/notify-stakeholder.js';
 
-const docOwners = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'doc-owners.json'), 'utf-8'));
+const docOwnersPath = path.join(process.cwd(), 'doc-owners.json');
+const docOwners = fs.existsSync(docOwnersPath)
+  ? JSON.parse(fs.readFileSync(docOwnersPath, 'utf-8'))
+  : {};
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 

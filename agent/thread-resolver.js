@@ -126,7 +126,9 @@ export async function judgeFollowUp(question, sources, replies) {
     if (label === 'follow-up-question') {
       updateUsageLedger(sources, 'followUpCount');
     } else if (label === 'correction') {
-      updateUsageLedger(correctedSources.length > 0 ? correctedSources : sources, 'correctionCount');
+      const targets = correctedSources.length > 0 ? correctedSources : sources;
+      // correctionCount update also increments followUpCount inside updateUsageLedger (Req 2.6)
+      updateUsageLedger(targets, 'correctionCount');
     }
   } catch (err) {
     console.error('judgeFollowUp: ledger update failed:', err.message);

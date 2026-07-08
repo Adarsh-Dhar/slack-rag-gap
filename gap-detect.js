@@ -15,7 +15,7 @@ const GAPS_PATH = path.join(process.cwd(), 'gaps.json');
 
 // Only chase drafts for clusters that look like real, recurring gaps —
 // a single one-off odd question isn't worth bothering a stakeholder over.
-const MIN_HITS_FOR_DRAFT = 1;
+const MIN_HITS_FOR_DRAFT = parseInt(process.env.MIN_HITS_FOR_DRAFT) || 3;
 const RESOLVED_GAPS_PATH = path.join(process.cwd(), 'resolved-gaps.json');
 
 // Tune by eye once you have real data.
@@ -108,31 +108,25 @@ function rankClusters(clusters) {
  * For a gap cluster, find the most recent member with a real thread_ts,
  * pull the replies that came after the bot's answer, and see if a human
  * resolved it. If so, draft a stub and notify the stakeholder.
+ *
+ * @param {import('./gap-detect.js').RankedCluster} cluster
+ * @param {Set<string>} resolvedSlugs - already-resolved draft slugs (checked after LLM titles the draft)
+ * @param {string} botUserId - cached bot user ID from a single auth.test() call
  */
-async function tryDraftFromCluster(cluster) {
+async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
   const withThread = cluster.members.filter((m) => m.channel && m.thread_ts);
   if (withThread.length === 0) return;
 
   const { channel, thread_ts } = withThread.at(-1);
 
   try {
-    // Debug: Check bot's auth info and scopes
-    try {
-      const authInfo = await slack.auth.test();
-      console.log(`  Bot user: ${authInfo.user}, Team: ${authInfo.team}`);
-    } catch (error) {
-      console.error(`  Auth test failed:`, error.message);
-    }
-
-    // Try using conversations.replies first
     let messages;
     try {
       const result = await slack.conversations.replies({ channel, ts: thread_ts });
       messages = result.messages;
     } catch (error) {
       if (error.data?.error === 'missing_scope') {
-        console.error(`  conversations.replies failed with missing_scope, trying channels.history as fallback`);
-        // Fallback: use channels.history with thread_ts to get thread messages
+        console.error(`  conversations.replies failed with missing_scope, trying conversations.history as fallback`);
         const historyResult = await slack.conversations.history({
           channel,
           oldest: thread_ts,
@@ -144,7 +138,6 @@ async function tryDraftFromCluster(cluster) {
       }
     }
 
-    const botUserId = (await slack.auth.test()).user_id;
     const replies = messages
       .filter((m) => m.user && m.user !== botUserId && m.ts !== thread_ts)
       .map((m) => ({ user: m.user, text: m.text }));
@@ -152,8 +145,6 @@ async function tryDraftFromCluster(cluster) {
     const { resolved, resolvingText, resolvingUser } = await judgeResolution(cluster.representative, replies);
     if (!resolved) return;
 
-    // One embedding call, reused both to route this draft to the right SME
-    // and to record who resolved this topic for next time.
     const topicEmbedding = await embed(cluster.representative);
 
     const { permalink } = await slack.chat.getPermalink({ channel, message_ts: thread_ts });
@@ -164,12 +155,16 @@ async function tryDraftFromCluster(cluster) {
       hitCount: cluster.hitCount,
     });
 
+    // Skip drafts whose slug matches an already-resolved gap
+    if (resolvedSlugs.has(draft.slug)) {
+      console.log(`  Skipping already-resolved gap: ${draft.slug}`);
+      return;
+    }
+
     const { userId, reason } = await resolveOwner(topicEmbedding, cluster.representative);
     await notifyStakeholder(slack, { ...draft, permalink }, userId, reason);
     markResolved(draft.slug);
 
-    // Learn from this resolution regardless of who it got routed to, so the
-    // router improves over time even before any draft is approved.
     recordResolution(topicEmbedding, resolvingUser);
   } catch (error) {
     console.error(`  Error processing cluster "${cluster.representative}":`, error.message);
@@ -203,10 +198,22 @@ async function main() {
 
   console.log('\nChecking top gaps for resolved threads worth drafting...');
   const resolvedSlugs = loadResolvedSlugs();
+
+  // Single auth.test() call — reused by every tryDraftFromCluster invocation
+  let botUserId;
+  try {
+    const authInfo = await slack.auth.test();
+    botUserId = authInfo.user_id;
+    console.log(`  Bot user: ${authInfo.user}, Team: ${authInfo.team}`);
+  } catch (error) {
+    console.error(`  auth.test() failed: ${error.message} — skipping draft checks`);
+    return;
+  }
+
   for (const cluster of ranked.slice(0, 10)) {
     if (cluster.hitCount < MIN_HITS_FOR_DRAFT) continue;
     try {
-      await tryDraftFromCluster(cluster);
+      await tryDraftFromCluster(cluster, resolvedSlugs, botUserId);
     } catch (e) {
       console.error(`  Failed to process cluster "${cluster.representative}": ${e}`);
     }
