@@ -1,13 +1,43 @@
 [
   {
     "representative": "<@U0BFZAHP61J> what's the wifi password",
-    "hitCount": 1,
-    "score": 0.9999667666204588,
-    "lastSeen": "2026-07-08T06:09:51.194Z",
+    "hitCount": 6,
+    "score": 5.922662945766357,
+    "lastSeen": "2026-07-08T10:38:28.242Z",
     "members": [
       {
         "question": "<@U0BFZAHP61J> what's the wifi password",
         "timestamp": "2026-07-08T06:09:51.194Z"
+      },
+      {
+        "question": "<@U0BFZAHP61J> what's the wifi password",
+        "timestamp": "2026-07-08T07:59:32.392Z",
+        "channel": "C0BF8AEMVL7",
+        "thread_ts": "1783497567.609709"
+      },
+      {
+        "question": "<@U0BFZAHP61J> what's the wifi password",
+        "timestamp": "2026-07-08T08:53:16.049Z",
+        "channel": "C0BF8AEMVL7",
+        "thread_ts": "1783500792.582349"
+      },
+      {
+        "question": "<@U0BFZAHP61J> what's the wifi password",
+        "timestamp": "2026-07-08T10:19:40.931Z",
+        "channel": "C0BF8AEMVL7",
+        "thread_ts": "1783505976.926759"
+      },
+      {
+        "question": "<@U0BFZAHP61J> what's the wifi password",
+        "timestamp": "2026-07-08T10:27:03.723Z",
+        "channel": "C0BF8AEMVL7",
+        "thread_ts": "1783506420.044579"
+      },
+      {
+        "question": "<@U0BFZAHP61J> what's the wifi password",
+        "timestamp": "2026-07-08T10:38:28.242Z",
+        "channel": "C0BF8AEMVL7",
+        "thread_ts": "1783507104.479669"
       }
     ]
   }

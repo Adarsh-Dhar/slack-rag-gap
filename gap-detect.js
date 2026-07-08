@@ -20,7 +20,7 @@ const GAPS_PATH = path.join(process.cwd(), 'gaps.json');
 
 // Only chase drafts for clusters that look like real, recurring gaps —
 // a single one-off odd question isn't worth bothering a stakeholder over.
-const MIN_HITS_FOR_DRAFT = 2;
+const MIN_HITS_FOR_DRAFT = 1;
 const RESOLVED_GAPS_PATH = path.join(process.cwd(), 'resolved-gaps.json');
 
 // Tune these two by eye once you have real data.
@@ -142,25 +142,60 @@ async function tryDraftFromCluster(cluster) {
 
   const { channel, thread_ts } = withThread.at(-1);
 
-  const { messages } = await slack.conversations.replies({ channel, ts: thread_ts });
-  const botUserId = (await slack.auth.test()).user_id;
-  const replies = messages
-    .filter((m) => m.user && m.user !== botUserId && m.ts !== thread_ts)
-    .map((m) => ({ user: m.user, text: m.text }));
+  try {
+    // Debug: Check bot's auth info and scopes
+    try {
+      const authInfo = await slack.auth.test();
+      console.log(`  Bot user: ${authInfo.user}, Team: ${authInfo.team}`);
+    } catch (error) {
+      console.error(`  Auth test failed:`, error.message);
+    }
 
-  const { resolved, resolvingText } = await judgeResolution(cluster.representative, replies);
-  if (!resolved) return;
+    // Try using conversations.replies first
+    let messages;
+    try {
+      const result = await slack.conversations.replies({ channel, ts: thread_ts });
+      messages = result.messages;
+    } catch (error) {
+      if (error.data?.error === 'missing_scope') {
+        console.error(`  conversations.replies failed with missing_scope, trying channels.history as fallback`);
+        // Fallback: use channels.history with thread_ts to get thread messages
+        const historyResult = await slack.conversations.history({
+          channel,
+          oldest: thread_ts,
+          inclusive: true,
+        });
+        messages = historyResult.messages;
+      } else {
+        throw error;
+      }
+    }
 
-  const { permalink } = await slack.chat.getPermalink({ channel, message_ts: thread_ts });
-  const draft = await draftStub({
-    question: cluster.representative,
-    resolvingText,
-    permalink,
-    hitCount: cluster.hitCount,
-  });
+    const botUserId = (await slack.auth.test()).user_id;
+    const replies = messages
+      .filter((m) => m.user && m.user !== botUserId && m.ts !== thread_ts)
+      .map((m) => ({ user: m.user, text: m.text }));
 
-  await notifyStakeholder(slack, { ...draft, permalink });
-  markResolved(draft.slug);
+    const { resolved, resolvingText } = await judgeResolution(cluster.representative, replies);
+    if (!resolved) return;
+
+    const { permalink } = await slack.chat.getPermalink({ channel, message_ts: thread_ts });
+    const draft = await draftStub({
+      question: cluster.representative,
+      resolvingText,
+      permalink,
+      hitCount: cluster.hitCount,
+    });
+
+    await notifyStakeholder(slack, { ...draft, permalink });
+    markResolved(draft.slug);
+  } catch (error) {
+    console.error(`  Error processing cluster "${cluster.representative}":`, error.message);
+    if (error.data?.error === 'missing_scope') {
+      console.error(`  Missing scope details:`, error.data);
+      console.error(`  Channel: ${channel}, Thread: ${thread_ts}`);
+    }
+  }
 }
 
 async function main() {

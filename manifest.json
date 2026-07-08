@@ -25,10 +25,12 @@
         "assistant:write",
         "channels:history",
         "channels:join",
+        "channels:read",
         "chat:write",
         "im:history",
         "groups:history",
-        "im:write"
+        "im:write",
+        "groups:read"
       ]
     }
   },
