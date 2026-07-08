@@ -67,9 +67,10 @@ const SAFE_DEFAULT = { label: 'resolved', correctedText: null, correctedSources:
  * @param {string} question - Original question text
  * @param {string[]} sources - Source filenames cited in the bot answer
  * @param {{user: string, text: string}[]} replies - Thread replies after the bot's message
+ * @param {string|null} [answerText] - The bot's actual answer text (improves correction detection)
  * @returns {Promise<{label: string, correctedText: string|null, correctedSources: string[]}>}
  */
-export async function judgeFollowUp(question, sources, replies) {
+export async function judgeFollowUp(question, sources, replies, answerText = null) {
   // Fast path: no replies means nothing to judge
   if (replies.length === 0) {
     return { label: 'resolved', correctedText: null, correctedSources: [] };
@@ -88,6 +89,7 @@ export async function judgeFollowUp(question, sources, replies) {
           content:
             'You analyze a Slack thread reply to decide whether it indicates the bot\'s answer\n' +
             'was sufficient, asks a follow-up question, or explicitly corrects wrong information.\n' +
+            'A correction is ANY reply that disputes, contradicts, or updates specific facts in the bot\'s answer.\n' +
             'Respond only with JSON:\n' +
             '{\n' +
             '  "label": "resolved" | "follow-up-question" | "correction",\n' +
@@ -100,6 +102,7 @@ export async function judgeFollowUp(question, sources, replies) {
           content:
             `Original question: ${question}\n` +
             `Documents cited: ${sources.join(', ')}\n` +
+            (answerText ? `Bot's answer: ${answerText}\n` : '') +
             `Replies:\n${transcript}`,
         },
       ],

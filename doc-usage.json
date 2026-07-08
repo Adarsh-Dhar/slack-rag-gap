@@ -1,0 +1,20 @@
+{
+  "test-placeholder.md": {
+    "citedCount": 1000,
+    "followUpCount": 0,
+    "correctionCount": 0,
+    "lastCited": "2026-07-08T19:23:06.722Z"
+  },
+  "wifi-password-information.md": {
+    "citedCount": 3,
+    "followUpCount": 0,
+    "correctionCount": 0,
+    "lastCited": "2026-07-08T19:35:44.048Z"
+  },
+  "handbook.md": {
+    "citedCount": 3,
+    "followUpCount": 0,
+    "correctionCount": 0,
+    "lastCited": "2026-07-08T19:35:44.048Z"
+  }
+}

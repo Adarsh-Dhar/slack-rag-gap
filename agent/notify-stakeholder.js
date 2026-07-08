@@ -16,8 +16,13 @@ export async function notifyStakeholder(client, draft, userId, reason) {
     return;
   }
 
+  // On Enterprise Grid, posting to a user ID directly fails with team_not_found.
+  // conversations.open returns the correct IM channel ID for any workspace topology.
+  const { channel } = await client.conversations.open({ users: targetUserId });
+  const dmChannelId = channel.id;
+
   await client.chat.postMessage({
-    channel: targetUserId, // DMing a user ID opens/uses the IM channel directly
+    channel: dmChannelId,
     text: `New doc draft ready for review: ${draft.title}`,
     blocks: [
       {

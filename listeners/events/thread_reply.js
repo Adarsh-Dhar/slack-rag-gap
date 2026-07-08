@@ -41,10 +41,18 @@ export async function threadReplyCallback({ event, client, logger }) {
 
   // Look up the original bot answer for this thread
   const lastAnswer = getLastAnswerForThread(channel, thread_ts);
-  if (!lastAnswer) return; // thread not started by the bot — ignore
+  if (!lastAnswer) {
+    logger.debug(`threadReplyCallback: no logged answer for channel=${channel} thread=${thread_ts} — ignoring`);
+    return; // thread not started by the bot — ignore
+  }
 
-  const { question, sources } = lastAnswer;
-  if (sources.length === 0) return; // bot answered but cited no sources — nothing to correct
+  const { question, sources, answerText } = lastAnswer;
+  logger.info(`threadReplyCallback: evaluating reply in thread ${thread_ts} — question="${question?.slice(0, 60)}" sources=${sources}`);
+
+  if (sources.length === 0) {
+    logger.info(`threadReplyCallback: bot answered with no sources — nothing to correct`);
+    return;
+  }
 
   let label, correctedText, correctedSources;
   try {
@@ -52,11 +60,14 @@ export async function threadReplyCallback({ event, client, logger }) {
       question,
       sources,
       [{ user, text }],
+      answerText,
     ));
   } catch (err) {
     logger.error(`threadReplyCallback: judgeFollowUp failed: ${err.message}`);
     return;
   }
+
+  logger.info(`threadReplyCallback: judgeFollowUp label="${label}" correctedText="${correctedText?.slice(0, 80)}"`);
 
   if (label !== 'correction') return; // nothing to draft
 

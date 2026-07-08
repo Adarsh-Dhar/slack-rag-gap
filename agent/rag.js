@@ -31,10 +31,12 @@ const LOG_PATH = path.join(process.cwd(), 'query-log.jsonl');
 // isn't empty — even if none of them are actually relevant to the question.
 // So "did we get docs back" is NOT the same as "did we find an answer".
 // This threshold is what actually separates "real hit" from "nearest thing
-// we had, which wasn't close." Tune by eye once you have real topScore
-// values in query-log.jsonl (unanswered/irrelevant queries tend to cluster
-// noticeably higher than genuine hits).
-const RELEVANCE_THRESHOLD = 1.1;
+// we had, which wasn't close." Calibrated against observed scores in
+// query-log.jsonl: genuine hits for this corpus cluster around 0.9–1.7,
+// while truly off-topic queries (e.g. asking about things not in any doc)
+// tend to score even higher. Set conservatively high so we don't refuse
+// valid questions; lower it once you have more docs and query data.
+const RELEVANCE_THRESHOLD = 1.8;
 
 function logQuery(entry) {
   fs.appendFileSync(LOG_PATH, JSON.stringify(entry) + '\n');
@@ -111,11 +113,13 @@ export async function retrieveContext(question, { channel, thread_ts } = {}) {
 /**
  * Records the final generated answer against its logged query so Phase 2
  * (gap detection) has the full question -> answer -> confidence chain.
+ * Also used by threadReplyCallback to supply the bot's answer text to
+ * judgeFollowUp for accurate correction classification.
  */
-export function logAnswer(question, answer, { channel, thread_ts } = {}) {
+export function logAnswer(question, answerText, { channel, thread_ts } = {}) {
   logQuery({
     question,
-    answer,
+    answerText,
     channel,
     thread_ts,
     timestamp: new Date().toISOString(),
@@ -125,27 +129,37 @@ export function logAnswer(question, answer, { channel, thread_ts } = {}) {
 
 /**
  * Looks up the most recent retrieveContext log entry for a given thread.
- * Returns the entry's question and sources, or null if no match is found.
+ * Returns the entry's question, sources, and bot answer text (if recorded).
  *
  * @param {string} channel
  * @param {string} thread_ts
- * @returns {{ question: string, sources: string[] } | null}
+ * @returns {{ question: string, sources: string[], answerText: string|null } | null}
  */
 export function getLastAnswerForThread(channel, thread_ts) {
   if (!fs.existsSync(LOG_PATH)) return null;
   const lines = fs.readFileSync(LOG_PATH, 'utf-8').trim().split('\n').filter(Boolean);
-  // Walk backwards to find the most recent matching entry that has sources
-  // (i.e. a retrieveContext entry, not a logAnswer 'answer' entry)
+
+  let retrieveEntry = null;
+  let answerEntry = null;
+
+  // Walk backwards — find the most recent retrieve + answer pair for this thread
   for (let i = lines.length - 1; i >= 0; i--) {
     let entry;
-    try {
-      entry = JSON.parse(lines[i]);
-    } catch {
-      continue;
+    try { entry = JSON.parse(lines[i]); } catch { continue; }
+    if (entry.channel !== channel || entry.thread_ts !== thread_ts) continue;
+
+    if (!answerEntry && entry.type === 'answer') {
+      answerEntry = entry;
+    } else if (!retrieveEntry && entry.type !== 'answer') {
+      retrieveEntry = entry;
     }
-    if (entry.channel === channel && entry.thread_ts === thread_ts && entry.type !== 'answer') {
-      return { question: entry.question, sources: entry.sources ?? [] };
-    }
+    if (retrieveEntry && answerEntry) break;
   }
-  return null;
+
+  if (!retrieveEntry) return null;
+  return {
+    question: retrieveEntry.question,
+    sources: retrieveEntry.sources ?? [],
+    answerText: answerEntry?.answerText ?? null,
+  };
 }

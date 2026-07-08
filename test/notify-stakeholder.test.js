@@ -6,9 +6,12 @@ import { notifyStakeholder } from '../agent/notify-stakeholder.js';
 /**
  * Creates a mock Slack client that captures the last postMessage call.
  */
-function makeMockClient() {
+function makeMockClient(dmChannelId = 'D_TEST_CHANNEL') {
   const calls = [];
   const client = {
+    conversations: {
+      open: async () => ({ channel: { id: dmChannelId } }),
+    },
     chat: {
       postMessage: async (payload) => {
         calls.push(payload);

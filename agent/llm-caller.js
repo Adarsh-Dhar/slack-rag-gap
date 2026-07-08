@@ -36,6 +36,8 @@ export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
   const isFreshTurn = !prompts.some((p) => p.role === 'system');
   const latestUserMessage = [...prompts].reverse().find((p) => p.role === 'user');
 
+  let _logAnswerArgs = null; // captured for post-stream logging
+
   if (isFreshTurn && latestUserMessage) {
     const { context, sources, hasResults } = await retrieveContext(latestUserMessage.content, {
       channel,
@@ -48,10 +50,8 @@ export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
 
     prompts.unshift({ role: 'system', content: systemContent });
 
-    logAnswer(latestUserMessage.content, hasResults ? 'answered' : 'no_docs_found', {
-      channel,
-      thread_ts,
-    });
+    // Store args — we'll call logAnswer after streaming so we have the actual answer text
+    _logAnswerArgs = { question: latestUserMessage.content, channel, thread_ts };
   }
 
   const stream = await openai.chat.completions.create({
@@ -66,12 +66,14 @@ export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
   // unlike the Responses API, we have to manually accumulate them across chunks.
   const toolCallAccumulator = {};
   let finishReason = null;
+  let accumulatedText = ''; // collect answer text for logAnswer
 
   for await (const chunk of stream) {
     const delta = chunk.choices?.[0]?.delta;
     finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason;
 
     if (delta?.content) {
+      accumulatedText += delta.content;
       await streamer.append({ markdown_text: delta.content });
     }
 
@@ -86,6 +88,14 @@ export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
         if (tc.function?.arguments) toolCallAccumulator[idx].arguments += tc.function.arguments;
       }
     }
+  }
+
+  // Log the actual answer text now that we have it
+  if (_logAnswerArgs) {
+    logAnswer(_logAnswerArgs.question, accumulatedText || '(tool call)', {
+      channel: _logAnswerArgs.channel,
+      thread_ts: _logAnswerArgs.thread_ts,
+    });
   }
 
   const toolCalls = Object.values(toolCallAccumulator);

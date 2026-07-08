@@ -21,8 +21,30 @@ const noopEmbeddingFunction = {
   },
 };
 
-export function chunkText(text, size = 1000) {
-  return text.match(new RegExp(`.{1,${size}}`, 'gs')) || [];
+export function chunkText(text, size = 400) {
+  // Split on paragraph boundaries first, then fall back to hard size limit.
+  // Paragraph-aware chunks keep semantically related sentences together,
+  // which produces tighter, more accurate embeddings than fixed-size slicing.
+  const paragraphs = text.split(/\n{2,}/);
+  const chunks = [];
+  let current = '';
+
+  for (const para of paragraphs) {
+    const trimmed = para.trim();
+    if (!trimmed) continue;
+    if (current.length + trimmed.length + 2 > size && current.length > 0) {
+      chunks.push(current.trim());
+      current = trimmed;
+    } else {
+      current = current ? `${current}\n\n${trimmed}` : trimmed;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+
+  // If any individual paragraph exceeds `size`, hard-split it
+  return chunks.flatMap((c) =>
+    c.length <= size ? [c] : c.match(new RegExp(`.{1,${size}}`, 'gs')) ?? []
+  );
 }
 
 /**
@@ -67,15 +89,10 @@ export async function ingestText(fileName, text) {
 }
 
 export async function ingestFile(filePath) {
-  try {
-    const text = fs.readFileSync(filePath, 'utf-8');
-    const fileName = path.basename(filePath);
-    const count = await ingestText(fileName, text);
-    console.log(`Ingested ${count} chunks from ${fileName}`);
-  } catch (error) {
-    console.error(`Failed to ingest ${filePath}: ${error.message}`);
-    // Skip files that fail ingestion instead of crashing
-  }
+  const text = fs.readFileSync(filePath, 'utf-8');
+  const fileName = path.basename(filePath);
+  const count = await ingestText(fileName, text);
+  console.log(`Ingested ${count} chunks from ${fileName}`);
 }
 
 async function main() {
@@ -104,4 +121,10 @@ async function main() {
   console.log(`Successfully ingested ${successCount}/${files.length} file(s)`);
 }
 
-main();
+// Only run main() when this file is executed directly (node ingest.js),
+// not when imported as a module by app.js or tests.
+const isMain = process.argv[1] && (
+  process.argv[1].endsWith('/ingest.js') ||
+  process.argv[1].endsWith('\\ingest.js')
+);
+if (isMain) main();
