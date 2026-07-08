@@ -7,6 +7,8 @@ const openai = new OpenAI({
   apiKey: process.env.GITHUB_TOKEN,
   baseURL: 'https://models.github.ai/inference',
 });
+
+// Force in-memory mode to avoid corrupted data issues
 const chroma = new ChromaClient();
 const COLLECTION_NAME = 'docs';
 const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
@@ -24,6 +26,16 @@ const noopEmbeddingFunction = {
 // prototyping — the shape stays the same either way.
 const LOG_PATH = path.join(process.cwd(), 'query-log.jsonl');
 
+// Chroma's default space is L2 distance (lower = more similar). It always
+// returns your top-`nResults` nearest neighbors as long as the collection
+// isn't empty — even if none of them are actually relevant to the question.
+// So "did we get docs back" is NOT the same as "did we find an answer".
+// This threshold is what actually separates "real hit" from "nearest thing
+// we had, which wasn't close." Tune by eye once you have real topScore
+// values in query-log.jsonl (unanswered/irrelevant queries tend to cluster
+// noticeably higher than genuine hits).
+const RELEVANCE_THRESHOLD = 1.1;
+
 function logQuery(entry) {
   fs.appendFileSync(LOG_PATH, JSON.stringify(entry) + '\n');
 }
@@ -35,45 +47,74 @@ function logQuery(entry) {
  * @param {string} question
  * @returns {Promise<{context: string, sources: string[], topScore: number|null, hasResults: boolean}>}
  */
-export async function retrieveContext(question) {
+export async function retrieveContext(question, { channel, thread_ts } = {}) {
   const embeddingRes = await openai.embeddings.create({
     model: EMBEDDING_MODEL,
     input: question,
   });
 
-  const collection = await chroma.getOrCreateCollection({
-    name: COLLECTION_NAME,
-    embeddingFunction: noopEmbeddingFunction,
-  });
-  const results = await collection.query({
-    queryEmbeddings: [embeddingRes.data[0].embedding],
-    nResults: 4,
-  });
+  try {
+    const collection = await chroma.getOrCreateCollection({
+      name: COLLECTION_NAME,
+      embeddingFunction: noopEmbeddingFunction,
+    });
+    const results = await collection.query({
+      queryEmbeddings: [embeddingRes.data[0].embedding],
+      nResults: 4,
+    });
 
-  const docs = results.documents?.[0] ?? [];
-  const metas = results.metadatas?.[0] ?? [];
-  const distances = results.distances?.[0] ?? [];
+    const docs = results.documents?.[0] ?? [];
+    const metas = results.metadatas?.[0] ?? [];
+    const distances = results.distances?.[0] ?? [];
 
-  const hasResults = docs.length > 0;
-  const context = docs.join('\n---\n');
-  const sources = [...new Set(metas.map((m) => m?.source).filter(Boolean))];
-  const topScore = distances.length > 0 ? distances[0] : null; // lower = more similar (Chroma L2)
+    const topScore = distances.length > 0 ? distances[0] : null; // lower = more similar (Chroma L2)
 
-  logQuery({
-    question,
-    topScore,
-    hasResults,
-    sources,
-    timestamp: new Date().toISOString(),
-  });
+    // docs.length > 0 alone isn't a relevance signal — Chroma returns nearest
+    // neighbors regardless of how far away they are. Require the closest one
+    // to actually clear the relevance bar.
+    const hasResults = docs.length > 0 && topScore !== null && topScore <= RELEVANCE_THRESHOLD;
+    const context = docs.join('\n---\n');
+    const sources = [...new Set(metas.map((m) => m?.source).filter(Boolean))];
 
-  return { context, sources, topScore, hasResults };
+    logQuery({
+      question,
+      topScore,
+      hasResults,
+      sources,
+      channel,
+      thread_ts,
+      timestamp: new Date().toISOString(),
+    });
+
+    return { context, sources, topScore, hasResults };
+  } catch (error) {
+    console.error('ChromaDB error during retrieval:', error.message);
+    // Return empty results if Chroma fails, allowing the bot to still function
+    logQuery({
+      question,
+      topScore: null,
+      hasResults: false,
+      sources: [],
+      channel,
+      thread_ts,
+      timestamp: new Date().toISOString(),
+      chromaError: error.message,
+    });
+    return { context: '', sources: [], topScore: null, hasResults: false };
+  }
 }
 
 /**
  * Records the final generated answer against its logged query so Phase 2
  * (gap detection) has the full question -> answer -> confidence chain.
  */
-export function logAnswer(question, answer) {
-  logQuery({ question, answer, timestamp: new Date().toISOString(), type: 'answer' });
+export function logAnswer(question, answer, { channel, thread_ts } = {}) {
+  logQuery({
+    question,
+    answer,
+    channel,
+    thread_ts,
+    timestamp: new Date().toISOString(),
+    type: 'answer',
+  });
 }

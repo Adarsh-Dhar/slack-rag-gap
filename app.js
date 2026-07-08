@@ -11,7 +11,16 @@ const app = new App({
 
 registerListeners(app);
 
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
+});
+
 (async () => {
-  await app.start();
-  console.log('⚡️ Bolt app started');
+  try {
+    await app.start();
+    console.log('⚡️ Bolt app started');
+  } catch (error) {
+    console.error('Failed to start app:', error);
+    process.exit(1);
+  }
 })();

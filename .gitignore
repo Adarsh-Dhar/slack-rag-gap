@@ -4,3 +4,4 @@
 !.env.sample
 chroma-data
 query-log.jsonl
+resolved-gaps.json

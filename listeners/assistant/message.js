@@ -159,7 +159,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
         },
       ];
 
-      await callLLM(streamer, prompts);
+      await callLLM(streamer, prompts, { channel, thread_ts });
       await streamer.stop({ blocks: [feedbackBlock] });
     }
   } catch (e) {

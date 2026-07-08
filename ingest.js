@@ -14,6 +14,8 @@ const openai = new OpenAI({
   apiKey: process.env.GITHUB_TOKEN,
   baseURL: 'https://models.github.ai/inference',
 });
+
+// Force in-memory mode to avoid corrupted data issues
 const chroma = new ChromaClient();
 const DOCS_DIR = path.join(process.cwd(), 'docs');
 const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
@@ -30,31 +32,36 @@ function chunkText(text, size = 1000) {
   return text.match(new RegExp(`.{1,${size}}`, 'gs')) || [];
 }
 
-async function ingestFile(filePath) {
-  const buffer = fs.readFileSync(filePath);
-  const data = await pdf(buffer);
-  const text = data.text;
-  const chunks = chunkText(text);
+export async function ingestFile(filePath) {
+  try {
+    const buffer = fs.readFileSync(filePath);
+    const data = await pdf(buffer);
+    const text = data.text;
+    const chunks = chunkText(text);
 
-  const collection = await chroma.getOrCreateCollection({
-    name: 'docs',
-    embeddingFunction: noopEmbeddingFunction,
-  });
-  const fileName = path.basename(filePath);
+    const collection = await chroma.getOrCreateCollection({
+      name: 'docs',
+      embeddingFunction: noopEmbeddingFunction,
+    });
+    const fileName = path.basename(filePath);
 
-  for (const [i, chunk] of chunks.entries()) {
-    const embedding = await openai.embeddings.create({
-      model: EMBEDDING_MODEL,
-      input: chunk,
-    });
-    await collection.add({
-      ids: [`${fileName}-${i}`],
-      embeddings: [embedding.data[0].embedding],
-      documents: [chunk],
-      metadatas: [{ source: fileName }],
-    });
+    for (const [i, chunk] of chunks.entries()) {
+      const embedding = await openai.embeddings.create({
+        model: EMBEDDING_MODEL,
+        input: chunk,
+      });
+      await collection.add({
+        ids: [`${fileName}-${i}`],
+        embeddings: [embedding.data[0].embedding],
+        documents: [chunk],
+        metadatas: [{ source: fileName }],
+      });
+    }
+    console.log(`Ingested ${chunks.length} chunks from ${fileName}`);
+  } catch (error) {
+    console.error(`Failed to ingest ${filePath}: ${error.message}`);
+    // Skip corrupted files instead of crashing
   }
-  console.log(`Ingested ${chunks.length} chunks from ${fileName}`);
 }
 
 async function main() {

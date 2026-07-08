@@ -49,7 +49,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     ];
 
     console.log('[DEBUG] Calling LLM...');
-    await callLLM(streamer, prompts);
+    await callLLM(streamer, prompts, { channel, thread_ts });
 
     console.log('[DEBUG] Stopping stream...');
     await streamer.stop({ blocks: [feedbackBlock] });
