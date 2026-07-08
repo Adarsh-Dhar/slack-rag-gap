@@ -3,7 +3,7 @@
  * resolved) a draft stub for review.
  *
  * @param {import("@slack/web-api").WebClient} client
- * @param {{slug: string, title: string, summary: string, permalink: string}} draft
+ * @param {{slug: string, title: string, summary: string, permalink: string, diff?: string|null}} draft
  * @param {string|null} [userId] - Slack user ID to notify. Falls back to
  *   STAKEHOLDER_USER_ID when omitted or null (see agent/sme-router.js).
  * @param {string} [reason] - Human-readable routing reason, shown in the
@@ -33,6 +33,12 @@ export async function notifyStakeholder(client, draft, userId, reason) {
           },
         ],
       },
+      ...(draft.diff
+        ? [{
+            type: 'section',
+            text: { type: 'mrkdwn', text: `\`\`\`\n${draft.diff}\n\`\`\`` },
+          }]
+        : []),
       {
         type: 'actions',
         block_id: 'draft_review',

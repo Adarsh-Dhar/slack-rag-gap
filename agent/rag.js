@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { ChromaClient } from 'chromadb';
 import { OpenAI } from 'openai';
+import { updateUsageLedger } from './usage-ledger.js';
 
 const openai = new OpenAI({
   apiKey: process.env.GITHUB_TOKEN,
@@ -74,6 +75,10 @@ export async function retrieveContext(question, { channel, thread_ts } = {}) {
     const hasResults = docs.length > 0 && topScore !== null && topScore <= RELEVANCE_THRESHOLD;
     const context = docs.join('\n---\n');
     const sources = [...new Set(metas.map((m) => m?.source).filter(Boolean))];
+
+    if (hasResults && sources.length > 0) {
+      updateUsageLedger(sources, 'citedCount');
+    }
 
     logQuery({
       question,
