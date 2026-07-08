@@ -8,11 +8,7 @@ const openai = new OpenAI({
   baseURL: 'https://models.github.ai/inference',
 });
 
-// Use ChromaDB in-memory mode (no persistent storage)
-// Data will be lost on restart, but avoids SQLite permission issues
-const chroma = new ChromaClient({
-  path: null,
-});
+const chroma = new ChromaClient();
 const COLLECTION_NAME = 'docs';
 const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
