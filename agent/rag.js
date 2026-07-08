@@ -1,0 +1,64 @@
+import fs from 'fs';
+import path from 'path';
+import { ChromaClient } from 'chromadb';
+import { OpenAI } from 'openai';
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const chroma = new ChromaClient();
+const COLLECTION_NAME = 'docs';
+
+// Phase-2 foundation: append every query + retrieval result to a local
+// JSON-lines log. Swap this for a real Postgres insert once you're past
+// prototyping — the shape stays the same either way.
+const LOG_PATH = path.join(process.cwd(), 'query-log.jsonl');
+
+function logQuery(entry) {
+  fs.appendFileSync(LOG_PATH, JSON.stringify(entry) + '\n');
+}
+
+/**
+ * Embeds a question, retrieves the most relevant chunks from the vector
+ * store, and returns both the context text and a confidence signal.
+ *
+ * @param {string} question
+ * @returns {Promise<{context: string, sources: string[], topScore: number|null, hasResults: boolean}>}
+ */
+export async function retrieveContext(question) {
+  const embeddingRes = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: question,
+  });
+
+  const collection = await chroma.getOrCreateCollection({ name: COLLECTION_NAME });
+  const results = await collection.query({
+    queryEmbeddings: [embeddingRes.data[0].embedding],
+    nResults: 4,
+  });
+
+  const docs = results.documents?.[0] ?? [];
+  const metas = results.metadatas?.[0] ?? [];
+  const distances = results.distances?.[0] ?? [];
+
+  const hasResults = docs.length > 0;
+  const context = docs.join('\n---\n');
+  const sources = [...new Set(metas.map((m) => m?.source).filter(Boolean))];
+  const topScore = distances.length > 0 ? distances[0] : null; // lower = more similar (Chroma L2)
+
+  logQuery({
+    question,
+    topScore,
+    hasResults,
+    sources,
+    timestamp: new Date().toISOString(),
+  });
+
+  return { context, sources, topScore, hasResults };
+}
+
+/**
+ * Records the final generated answer against its logged query so Phase 2
+ * (gap detection) has the full question -> answer -> confidence chain.
+ */
+export function logAnswer(question, answer) {
+  logQuery({ question, answer, timestamp: new Date().toISOString(), type: 'answer' });
+}

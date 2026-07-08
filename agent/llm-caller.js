@@ -1,5 +1,6 @@
 import { OpenAI } from 'openai';
 import { rollDice, rollDiceDefinition } from './tools/dice.js';
+import { retrieveContext, logAnswer } from './rag.js';
 
 // OpenAI LLM client
 const openai = new OpenAI({
@@ -7,7 +8,7 @@ const openai = new OpenAI({
 });
 
 /**
- * Stream an LLM response to prompts with an example dice rolling function
+ * Stream an LLM response to prompts, grounded in retrieved document context.
  *
  * @param {import("@slack/web-api").ChatStreamer} streamer - Slack chat stream
  * @param {any[]} prompts - OpenAI response messages
@@ -19,6 +20,24 @@ const openai = new OpenAI({
  */
 export async function callLLM(streamer, prompts) {
   const toolCalls = [];
+
+  // Only retrieve on the first turn of a fresh call (i.e. real prompts array,
+  // not a recursive tool-call continuation which already has context baked in).
+  const isFreshTurn = !prompts.some((p) => p.role === 'system');
+  const latestUserMessage = [...prompts].reverse().find((p) => p.role === 'user');
+
+  if (isFreshTurn && latestUserMessage) {
+    const { context, sources, hasResults } = await retrieveContext(latestUserMessage.content);
+
+    const systemContent = hasResults
+      ? `Answer only using the provided context. If the context doesn't fully answer the question, say so explicitly rather than guessing. Cite sources by name when relevant.\n\nContext:\n${context}\n\nSources: ${sources.join(', ')}`
+      : `No relevant documentation was found for this question. Tell the user you don't have documentation on this topic yet, rather than guessing an answer.`;
+
+    prompts.unshift({ role: 'system', content: systemContent });
+
+    // Track that an answer was produced, for gap-detection later.
+    logAnswer(latestUserMessage.content, hasResults ? 'answered' : 'no_docs_found');
+  }
 
   const response = await openai.responses.create({
     model: 'gpt-4o-mini',
