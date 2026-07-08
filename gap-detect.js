@@ -164,7 +164,7 @@ async function tryDraftFromCluster(cluster) {
       hitCount: cluster.hitCount,
     });
 
-    const { userId, reason } = resolveOwner(topicEmbedding);
+    const { userId, reason } = await resolveOwner(topicEmbedding, cluster.representative);
     await notifyStakeholder(slack, { ...draft, permalink }, userId, reason);
     markResolved(draft.slug);
 
