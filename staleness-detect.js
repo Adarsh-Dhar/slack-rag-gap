@@ -153,4 +153,9 @@ async function main() {
   }
 }
 
-main();
+// Only run main() when this file is executed directly, not when imported by tests.
+const isMain = process.argv[1] && (
+  process.argv[1].endsWith('/staleness-detect.js') ||
+  process.argv[1].endsWith('\\staleness-detect.js')
+);
+if (isMain) main();

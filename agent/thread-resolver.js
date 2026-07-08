@@ -70,7 +70,7 @@ const SAFE_DEFAULT = { label: 'resolved', correctedText: null, correctedSources:
  * @param {string|null} [answerText] - The bot's actual answer text (improves correction detection)
  * @returns {Promise<{label: string, correctedText: string|null, correctedSources: string[]}>}
  */
-export async function judgeFollowUp(question, sources, replies, answerText = null) {
+export async function judgeFollowUp(question, sources, replies, answerText = null, ledgerPath = undefined) {
   // Fast path: no replies means nothing to judge
   if (replies.length === 0) {
     return { label: 'resolved', correctedText: null, correctedSources: [] };
@@ -127,11 +127,10 @@ export async function judgeFollowUp(question, sources, replies, answerText = nul
   // Update usage ledger based on label
   try {
     if (label === 'follow-up-question') {
-      updateUsageLedger(sources, 'followUpCount');
+      updateUsageLedger(sources, 'followUpCount', ledgerPath);
     } else if (label === 'correction') {
       const targets = correctedSources.length > 0 ? correctedSources : sources;
-      // correctionCount update also increments followUpCount inside updateUsageLedger (Req 2.6)
-      updateUsageLedger(targets, 'correctionCount');
+      updateUsageLedger(targets, 'correctionCount', ledgerPath);
     }
   } catch (err) {
     console.error('judgeFollowUp: ledger update failed:', err.message);

@@ -22,26 +22,45 @@ const noopEmbeddingFunction = {
 };
 
 export function chunkText(text, size = 400) {
-  // Split on paragraph boundaries first, then fall back to hard size limit.
-  // Paragraph-aware chunks keep semantically related sentences together,
-  // which produces tighter, more accurate embeddings than fixed-size slicing.
-  const paragraphs = text.split(/\n{2,}/);
+  // "Hold the heading" strategy: if a paragraph is a bare heading line,
+  // hold it and prepend it to the next paragraph rather than flushing it
+  // with the current chunk. This keeps headings attached to their body text
+  // regardless of how many blank lines surround them in the source file.
+  const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
   const chunks = [];
   let current = '';
+  let pendingHeading = ''; // held heading waiting for the next body paragraph
 
   for (const para of paragraphs) {
-    const trimmed = para.trim();
-    if (!trimmed) continue;
-    if (current.length + trimmed.length + 2 > size && current.length > 0) {
+    const isHeading = /^#{1,6}\s/.test(para);
+
+    if (isHeading) {
+      // Flush current content before starting a new section
+      if (current.trim()) {
+        chunks.push(current.trim());
+        current = '';
+      }
+      pendingHeading = para;
+      continue;
+    }
+
+    // Body paragraph — prepend any held heading
+    const block = pendingHeading ? `${pendingHeading}\n\n${para}` : para;
+    pendingHeading = '';
+
+    if (current.length + block.length + 2 > size && current.length > 0) {
       chunks.push(current.trim());
-      current = trimmed;
+      current = block;
     } else {
-      current = current ? `${current}\n\n${trimmed}` : trimmed;
+      current = current ? `${current}\n\n${block}` : block;
     }
   }
+
+  // Flush anything remaining (including a trailing heading with no body)
+  if (pendingHeading) current = current ? `${current}\n\n${pendingHeading}` : pendingHeading;
   if (current.trim()) chunks.push(current.trim());
 
-  // If any individual paragraph exceeds `size`, hard-split it
+  // Hard-split any chunk that still exceeds size (e.g. a single giant paragraph)
   return chunks.flatMap((c) =>
     c.length <= size ? [c] : c.match(new RegExp(`.{1,${size}}`, 'gs')) ?? []
   );
