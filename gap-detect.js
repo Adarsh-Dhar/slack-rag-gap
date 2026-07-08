@@ -1,20 +1,15 @@
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
-import { OpenAI } from 'openai';
 import { WebClient } from '@slack/web-api';
 import { judgeResolution } from './agent/thread-resolver.js';
 import { draftStub } from './agent/draft-generator.js';
 import { notifyStakeholder } from './agent/notify-stakeholder.js';
+import { embed, cosineSimilarity, recencyWeight } from './agent/embeddings.js';
+import { resolveOwner, recordResolution } from './agent/sme-router.js';
 
-// Same client/model as agent/rag.js and ingest.js — reuse, don't reinvent.
-const openai = new OpenAI({
-  apiKey: process.env.GITHUB_TOKEN,
-  baseURL: 'https://models.github.ai/inference',
-});
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
-const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 const LOG_PATH = path.join(process.cwd(), 'query-log.jsonl');
 const GAPS_PATH = path.join(process.cwd(), 'gaps.json');
 
@@ -23,26 +18,8 @@ const GAPS_PATH = path.join(process.cwd(), 'gaps.json');
 const MIN_HITS_FOR_DRAFT = 1;
 const RESOLVED_GAPS_PATH = path.join(process.cwd(), 'resolved-gaps.json');
 
-// Tune these two by eye once you have real data.
+// Tune by eye once you have real data.
 const SIMILARITY_THRESHOLD = 0.83; // cosine similarity to join an existing cluster
-const HALF_LIFE_DAYS = 7; // a hit from 7 days ago counts half as much as one today
-
-function cosineSimilarity(a, b) {
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-}
-
-function recencyWeight(timestamp) {
-  const ageDays = (Date.now() - new Date(timestamp).getTime()) / (1000 * 60 * 60 * 24);
-  return 0.5 ** (ageDays / HALF_LIFE_DAYS);
-}
 
 /**
  * Only lines logged by retrieveContext() (agent/rag.js) with hasResults === false.
@@ -66,10 +43,6 @@ function markResolved(slug) {
   fs.writeFileSync(RESOLVED_GAPS_PATH, JSON.stringify([...set], null, 2));
 }
 
-async function embed(text) {
-  const res = await openai.embeddings.create({ model: EMBEDDING_MODEL, input: text });
-  return res.data[0].embedding;
-}
 
 /**
  * Greedy single-pass clustering: for each question, join the most similar
@@ -176,8 +149,12 @@ async function tryDraftFromCluster(cluster) {
       .filter((m) => m.user && m.user !== botUserId && m.ts !== thread_ts)
       .map((m) => ({ user: m.user, text: m.text }));
 
-    const { resolved, resolvingText } = await judgeResolution(cluster.representative, replies);
+    const { resolved, resolvingText, resolvingUser } = await judgeResolution(cluster.representative, replies);
     if (!resolved) return;
+
+    // One embedding call, reused both to route this draft to the right SME
+    // and to record who resolved this topic for next time.
+    const topicEmbedding = await embed(cluster.representative);
 
     const { permalink } = await slack.chat.getPermalink({ channel, message_ts: thread_ts });
     const draft = await draftStub({
@@ -187,8 +164,13 @@ async function tryDraftFromCluster(cluster) {
       hitCount: cluster.hitCount,
     });
 
-    await notifyStakeholder(slack, { ...draft, permalink });
+    const { userId, reason } = resolveOwner(topicEmbedding);
+    await notifyStakeholder(slack, { ...draft, permalink }, userId, reason);
     markResolved(draft.slug);
+
+    // Learn from this resolution regardless of who it got routed to, so the
+    // router improves over time even before any draft is approved.
+    recordResolution(topicEmbedding, resolvingUser);
   } catch (error) {
     console.error(`  Error processing cluster "${cluster.representative}":`, error.message);
     if (error.data?.error === 'missing_scope') {

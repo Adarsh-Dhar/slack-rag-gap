@@ -14,11 +14,11 @@ const CHAT_MODEL = 'openai/gpt-4o-mini';
  *
  * @param {string} question
  * @param {{user: string, text: string}[]} replies - thread replies after the bot's message, bot's own replies excluded
- * @returns {Promise<{resolved: boolean, resolvingText: string|null, reason: string}>}
+ * @returns {Promise<{resolved: boolean, resolvingText: string|null, resolvingUser: string|null, reason: string}>}
  */
 export async function judgeResolution(question, replies) {
   if (replies.length === 0) {
-    return { resolved: false, resolvingText: null, reason: 'no replies' };
+    return { resolved: false, resolvingText: null, resolvingUser: null, reason: 'no replies' };
   }
 
   const transcript = replies.map((r, i) => `[${i}] ${r.text}`).join('\n');
@@ -43,8 +43,15 @@ export async function judgeResolution(question, replies) {
   });
 
   const parsed = JSON.parse(res.choices[0].message.content);
-  const resolvingText =
-    parsed.resolved && parsed.resolving_index != null ? replies[parsed.resolving_index]?.text ?? null : null;
+  const resolvingReply =
+    parsed.resolved && parsed.resolving_index != null ? replies[parsed.resolving_index] ?? null : null;
+  const resolvingText = resolvingReply?.text ?? null;
+  const resolvingUser = resolvingReply?.user ?? null;
 
-  return { resolved: Boolean(parsed.resolved) && resolvingText != null, resolvingText, reason: parsed.reason };
+  return {
+    resolved: Boolean(parsed.resolved) && resolvingText != null,
+    resolvingText,
+    resolvingUser,
+    reason: parsed.reason,
+  };
 }
