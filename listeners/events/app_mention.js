@@ -93,6 +93,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     // Process-owner commands are checked first — "who owns process X" would
     // otherwise be swallowed by the doc-owner "who owns" pattern below.
     const processOwnerCmd = parseProcessOwnerCommand(cleanText);
+    console.log(`[app_mention] processOwnerCmd=${JSON.stringify(processOwnerCmd)}`);
     if (processOwnerCmd) {
       if (processOwnerCmd.type === 'assign') {
         const result = assignProcessOwner(processOwnerCmd.topicName, processOwnerCmd.newOwnerId, user, processOwnerCmd.keywords);

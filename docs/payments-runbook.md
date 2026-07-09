@@ -1,3 +1,10 @@
+---
+title: Batch Email Notification Process Correction
+status: pending_review
+edit_of: payments-runbook.md
+source_thread: https://e0bf8agtccf-iceki877.slack.com/archives/C0BF8AEMVL7/p1783631859583039?thread_ts=1783631859.583039&cid=C0BF8AEMVL7
+created_at: 2026-07-09T21:18:09.057Z
+---
 # Payments Runbook
 
 ## Service Summary
@@ -29,3 +36,7 @@ The most common cause of divergence is a webhook that was received but failed to
 Standard refunds go through the self-service flow and settle in 5-10 business days per Stripe's timeline.
 
 Refunds tied to a dispute or chargeback must go through the payments on-call engineer rather than the self-service path, since disputed charges have separate accounting requirements. Touching them through the normal refund endpoint can leave the ledger inconsistent.
+
+## Email Notification Batching
+
+We batch email notifications because hitting the email provider per-user blows through their rate limit — batching into a 15-min window keeps us under it and lets us dedupe if someone triggers multiple notifications in that window.

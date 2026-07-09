@@ -9,7 +9,13 @@ const openai = new OpenAI({
   baseURL: 'https://models.github.ai/inference',
 });
 
-const chroma = new ChromaClient();
+const chromaUrl = (process.env.CHROMA_URL ?? 'http://127.0.0.1:8000').replace('localhost', '127.0.0.1');
+const chromaHost = new URL(chromaUrl);
+const chroma = new ChromaClient({
+  host: chromaHost.hostname,
+  port: parseInt(chromaUrl.split(':').pop()) || 8000,
+  ssl: chromaHost.protocol === 'https:',
+});
 const COLLECTION_NAME = 'docs';
 const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 

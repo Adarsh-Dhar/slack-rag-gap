@@ -1,14 +1,32 @@
 {
   "wifi-password-information.md": {
-    "citedCount": 11,
-    "followUpCount": 1,
-    "correctionCount": 1,
-    "lastCited": "2026-07-09T13:16:49.659Z"
+    "citedCount": 12,
+    "followUpCount": 2,
+    "correctionCount": 2,
+    "lastCited": "2026-07-09T21:02:02.535Z"
   },
   "handbook.md": {
-    "citedCount": 11,
-    "followUpCount": 7,
-    "correctionCount": 7,
-    "lastCited": "2026-07-09T13:16:49.659Z"
+    "citedCount": 12,
+    "followUpCount": 8,
+    "correctionCount": 8,
+    "lastCited": "2026-07-09T21:02:02.535Z"
+  },
+  "payments-runbook.md": {
+    "citedCount": 2,
+    "followUpCount": 1,
+    "correctionCount": 1,
+    "lastCited": "2026-07-09T21:19:27.246Z"
+  },
+  "deploy-process.md": {
+    "citedCount": 1,
+    "followUpCount": 1,
+    "correctionCount": 1,
+    "lastCited": "2026-07-09T21:17:42.617Z"
+  },
+  "checkout-service.md": {
+    "citedCount": 2,
+    "followUpCount": 1,
+    "correctionCount": 1,
+    "lastCited": "2026-07-09T21:19:27.246Z"
   }
 }

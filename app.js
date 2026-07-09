@@ -9,20 +9,37 @@ const DOCS_DIR = path.join(process.cwd(), 'docs');
 
 /**
  * Verifies ChromaDB is reachable before starting the app.
+ * Retries a few times to handle startup-order races (e.g. when slack run
+ * restarts the app before ChromaDB is fully ready).
  * ChromaDB must be running separately — start it with: npm run chroma
  */
 async function checkChroma() {
-  const url = `${process.env.CHROMA_URL ?? 'http://localhost:8000'}/api/v2/heartbeat`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  } catch (err) {
-    console.error(
-      '\n❌ ChromaDB is not running. Start it in a separate terminal first:\n' +
-      '   npm run chroma\n' +
-      `   (attempted to reach ${url}: ${err.message})\n`
-    );
-    process.exit(1);
+  const chromaUrl = (process.env.CHROMA_URL ?? 'http://localhost:8000').replace('localhost', '127.0.0.1');
+  const url = `${chromaUrl}/api/v2/heartbeat`;
+  const MAX_RETRIES = 5;
+  const RETRY_DELAY_MS = 3_000;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      console.log(`ChromaDB is reachable at ${url}`);
+      return;
+    } catch (err) {
+      if (attempt < MAX_RETRIES) {
+        console.warn(
+          `ChromaDB not reachable (attempt ${attempt}/${MAX_RETRIES}): ${err.message}. Retrying in ${RETRY_DELAY_MS / 1000}s...`
+        );
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      } else {
+        console.error(
+          '\n❌ ChromaDB is not running after ' + MAX_RETRIES + ' attempts. Start it in a separate terminal:\n' +
+          '   npm run chroma\n' +
+          `   (attempted to reach ${url}: ${err.message})\n`
+        );
+        process.exit(1);
+      }
+    }
   }
 }
 
@@ -41,7 +58,7 @@ async function ingestDocs() {
   // This avoids burning embedding API quota on every restart.
   // Run `node ingest.js` manually to force a full re-ingest after doc changes.
   try {
-    const chromaUrl = process.env.CHROMA_URL ?? 'http://localhost:8000';
+    const chromaUrl = (process.env.CHROMA_URL ?? 'http://localhost:8000').replace('localhost', '127.0.0.1');
     const collectionsRes = await fetch(`${chromaUrl}/api/v2/tenants/default_tenant/databases/default_database/collections`);
     const collections = await collectionsRes.json();
     const docsCollection = Array.isArray(collections) ? collections.find(c => c.name === 'docs') : null;

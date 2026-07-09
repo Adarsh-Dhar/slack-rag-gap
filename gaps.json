@@ -2,7 +2,7 @@
   {
     "representative": "<@U0BFZAHP61J> what's the wifi password",
     "hitCount": 8,
-    "score": 7.890906187568962,
+    "score": 6.9192881642916735,
     "lastSeen": "2026-07-08T12:19:41.714Z",
     "members": [
       {
@@ -50,6 +50,44 @@
         "timestamp": "2026-07-08T12:19:41.714Z",
         "channel": "C0BF8AEMVL7",
         "thread_ts": "1783513178.319159"
+      }
+    ]
+  },
+  {
+    "representative": "<@U0BFZAHP61J> no the price is now $50",
+    "hitCount": 2,
+    "score": 1.926802366548439,
+    "lastSeen": "2026-07-09T12:04:26.823Z",
+    "members": [
+      {
+        "question": "<@U0BFZAHP61J> no the price is now $50",
+        "timestamp": "2026-07-09T11:58:38.504Z",
+        "channel": "C0BF8AEMVL7",
+        "thread_ts": "1783598216.148899"
+      },
+      {
+        "question": "<@U0BFZAHP61J> no the price is now $50",
+        "timestamp": "2026-07-09T12:04:26.823Z",
+        "channel": "C0BF8AEMVL7",
+        "thread_ts": "1783598617.794169"
+      }
+    ]
+  },
+  {
+    "representative": "price of client meal",
+    "hitCount": 2,
+    "score": 1.7917615872910528,
+    "lastSeen": "2026-07-08T18:52:43.438Z",
+    "members": [
+      {
+        "question": "price of client meal",
+        "timestamp": "2026-07-08T17:56:56.447Z"
+      },
+      {
+        "question": "<@U0BFZAHP61J> what is the price of client meal",
+        "timestamp": "2026-07-08T18:52:43.438Z",
+        "channel": "C0BF8AEMVL7",
+        "thread_ts": "1783536759.720399"
       }
     ]
   }
