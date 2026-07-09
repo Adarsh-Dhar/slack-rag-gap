@@ -1,5 +1,4 @@
 import { OpenAI } from 'openai';
-import { rollDice, rollDiceDefinition } from './tools/dice.js';
 import { retrieveContext, logAnswer } from './rag.js';
 
 // OpenAI-compatible client pointed at GitHub Models
@@ -9,19 +8,6 @@ const openai = new OpenAI({
 });
 
 const CHAT_MODEL = 'openai/gpt-4o-mini';
-
-// GitHub Models' endpoint speaks Chat Completions, not the Responses API,
-// so tool definitions must be wrapped in the nested `function` shape.
-const chatTools = [
-  {
-    type: 'function',
-    function: {
-      name: rollDiceDefinition.name,
-      description: rollDiceDefinition.description,
-      parameters: rollDiceDefinition.parameters,
-    },
-  },
-];
 
 /**
  * Stream a Chat Completions response, grounded in retrieved document context.
@@ -57,97 +43,25 @@ export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
   const stream = await openai.chat.completions.create({
     model: CHAT_MODEL,
     messages: prompts,
-    tools: chatTools,
-    tool_choice: 'auto',
     stream: true,
   });
 
-  // Chat Completions streams tool-call *fragments* keyed by array index —
-  // unlike the Responses API, we have to manually accumulate them across chunks.
-  const toolCallAccumulator = {};
-  let finishReason = null;
   let accumulatedText = ''; // collect answer text for logAnswer
 
   for await (const chunk of stream) {
     const delta = chunk.choices?.[0]?.delta;
-    finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason;
 
     if (delta?.content) {
       accumulatedText += delta.content;
       await streamer.append({ markdown_text: delta.content });
     }
-
-    if (delta?.tool_calls) {
-      for (const tc of delta.tool_calls) {
-        const idx = tc.index;
-        if (!toolCallAccumulator[idx]) {
-          toolCallAccumulator[idx] = { id: tc.id, name: '', arguments: '' };
-        }
-        if (tc.id) toolCallAccumulator[idx].id = tc.id;
-        if (tc.function?.name) toolCallAccumulator[idx].name += tc.function.name;
-        if (tc.function?.arguments) toolCallAccumulator[idx].arguments += tc.function.arguments;
-      }
-    }
   }
 
   // Log the actual answer text now that we have it
   if (_logAnswerArgs) {
-    logAnswer(_logAnswerArgs.question, accumulatedText || '(tool call)', {
+    logAnswer(_logAnswerArgs.question, accumulatedText, {
       channel: _logAnswerArgs.channel,
       thread_ts: _logAnswerArgs.thread_ts,
     });
-  }
-
-  const toolCalls = Object.values(toolCallAccumulator);
-
-  if (finishReason === 'tool_calls' && toolCalls.length > 0) {
-    // Record the assistant's tool-call request in the conversation
-    prompts.push({
-      role: 'assistant',
-      tool_calls: toolCalls.map((call) => ({
-        id: call.id,
-        type: 'function',
-        function: { name: call.name, arguments: call.arguments },
-      })),
-    });
-
-    for (const call of toolCalls) {
-      if (call.name === 'roll_dice') {
-        const args = JSON.parse(call.arguments || '{}');
-
-        await streamer.append({
-          chunks: [
-            {
-              type: 'task_update',
-              id: call.id,
-              title: `Rolling a ${args.count}d${args.sides}...`,
-              status: 'in_progress',
-            },
-          ],
-        });
-
-        const result = rollDice(args);
-
-        prompts.push({
-          role: 'tool',
-          tool_call_id: call.id,
-          content: JSON.stringify(result),
-        });
-
-        await streamer.append({
-          chunks: [
-            {
-              type: 'task_update',
-              id: call.id,
-              title: result.error ?? result.description ?? 'Completed',
-              status: result.error ? 'error' : 'complete',
-            },
-          ],
-        });
-      }
-    }
-
-    // Continue the conversation now that tool results are available
-    await callLLM(streamer, prompts);
   }
 }

@@ -1,5 +1,4 @@
 import { callLLM } from '../../agent/llm-caller.js';
-import { feedbackBlock } from '../views/feedback_block.js';
 import { getLastAnswerForThread } from '../../agent/rag.js';
 import { judgeFollowUp } from '../../agent/thread-resolver.js';
 import { draftCorrection } from '../../agent/draft-generator.js';
@@ -80,7 +79,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
     const prompts = [{ role: 'user', content: text }];
 
     await callLLM(streamer, prompts, { channel, thread_ts });
-    await streamer.stop({ blocks: [feedbackBlock] });
+    await streamer.stop();
   } catch (e) {
     logger.error(`Failed to handle a user message event: ${e.stack ?? e}`);
     try {

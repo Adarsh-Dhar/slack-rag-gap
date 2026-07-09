@@ -1,5 +1,4 @@
 import { callLLM } from '../../agent/llm-caller.js';
-import { feedbackBlock } from '../views/feedback_block.js';
 import { getLastAnswerForThread } from '../../agent/rag.js';
 import { judgeFollowUp } from '../../agent/thread-resolver.js';
 import { draftCorrection } from '../../agent/draft-generator.js';
@@ -64,7 +63,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     });
 
     await callLLM(streamer, [{ role: 'user', content: text }], { channel, thread_ts });
-    await streamer.stop({ blocks: [feedbackBlock] });
+    await streamer.stop();
   } catch (e) {
     logger.error(`app_mention: failed: ${e.stack ?? e}`);
     await say(`:warning: Something went wrong! (${e.message ?? e})`);

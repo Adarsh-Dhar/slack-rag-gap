@@ -6,14 +6,11 @@
  * @param {import("@slack/types").AssistantThreadStartedEvent} params.event - The assistant thread started event.
  * @param {import("@slack/logger").Logger} params.logger - Logger instance.
  * @param {import("@slack/bolt").SayFn} params.say - Function to send messages.
- * @param {Function} params.setSuggestedPrompts - Function to set suggested prompts.
  * @param {Function} params.saveThreadContext - Function to save thread context.
  *
  * @see {@link https://docs.slack.dev/reference/events/assistant_thread_started}
  */
-export const assistantThreadStarted = async ({ event, logger, say, setSuggestedPrompts, saveThreadContext }) => {
-  const { context } = event.assistant_thread;
-
+export const assistantThreadStarted = async ({ event, logger, say, saveThreadContext }) => {
   try {
     /**
      * Since context is not sent along with individual user messages, it's necessary to keep
@@ -26,30 +23,6 @@ export const assistantThreadStarted = async ({ event, logger, say, setSuggestedP
     await say('Hi, how can I help?');
 
     await saveThreadContext();
-
-    /**
-     * Provide the user up to 4 optional, preset prompts to choose from.
-     *
-     * The first `title` prop is an optional label above the prompts that
-     * defaults to 'Try these prompts:' if not provided.
-     *
-     * @see {@link https://docs.slack.dev/reference/methods/assistant.threads.setSuggestedPrompts}
-     */
-    if (!context.channel_id) {
-      await setSuggestedPrompts({
-        title: 'Start with this suggested prompt:',
-        prompts: [
-          {
-            title: 'Prompt a task with thinking steps',
-            message: 'Wonder a few deep thoughts.',
-          },
-          {
-            title: 'Roll dice for a random number',
-            message: 'Roll two 12-sided dice and three 6-sided dice for a pseudo-random score.',
-          },
-        ],
-      });
-    }
   } catch (e) {
     logger.error(e);
   }
