@@ -1,5 +1,6 @@
 import { callLLM } from '../../agent/llm-caller.js';
 import { assignOwner, loadDocOwners } from '../../agent/doc-owners.js';
+import { assignProcessOwner, loadProcessOwners } from '../../agent/process-owners.js';
 
 /**
  * Parses an ownership command from the text (after the bot @mention is stripped).
@@ -34,6 +35,47 @@ export function parseOwnerCommand(text) {
 }
 
 /**
+ * Parses a process-owner command from the text (after the bot @mention is
+ * stripped). Mirrors parseOwnerCommand's grammar and rules, but for tagging
+ * a real engineer to an operational topic (e.g. "checkout", "deploys")
+ * instead of to a doc file. Must be checked BEFORE parseOwnerCommand, since
+ * "who owns process X" would otherwise be swallowed by the doc "who owns"
+ * pattern.
+ *
+ * Supported commands:
+ *   assign|set|transfer process owner of <topic> to <@user> [keywords: a, b, c]
+ *   who owns process <topic>
+ *   who is (the) process owner (of|for) <topic>
+ *   list process owners
+ *
+ * @param {string} text - Message text with bot @mention already removed
+ * @returns {{ type: 'assign'|'who'|'list', topicName?: string, newOwnerId?: string, keywords?: string[] } | null}
+ */
+export function parseProcessOwnerCommand(text) {
+  const assignMatch = text.match(
+    /^(?:assign|set|transfer)\s+process\s+owner(?:ship)?\s+(?:of|for)\s+(.+?)\s+to\s+<@([A-Z0-9]+)>(?:\s+keywords?\s*[:=]\s*(.+))?$/i,
+  );
+  if (assignMatch) {
+    const keywords = assignMatch[3]
+      ? assignMatch[3].split(',').map((k) => k.trim().toLowerCase()).filter(Boolean)
+      : undefined;
+    return { type: 'assign', topicName: assignMatch[1].trim(), newOwnerId: assignMatch[2], keywords };
+  }
+
+  const whoMatch = text.match(/^who\s+owns\s+process\s+(.+)/i)
+    || text.match(/^who\s+is\s+(?:the\s+)?process\s+owner\s+(?:of|for)\s+(.+)/i);
+  if (whoMatch) {
+    return { type: 'who', topicName: whoMatch[1].trim() };
+  }
+
+  if (/^list\s+process\s+owners/i.test(text.trim())) {
+    return { type: 'list' };
+  }
+
+  return null;
+}
+
+/**
  * Handles the event when the app is mentioned in a Slack conversation.
  * Ownership commands (assign/set/transfer/who/list) are processed here
  * regardless of threading. All other threaded @mentions are deferred to
@@ -47,6 +89,45 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
 
     // Strip the bot @mention prefix from the text for command parsing
     const cleanText = text.replace(/<@[A-Z0-9]+>\s*/, '').trim();
+
+    // Process-owner commands are checked first — "who owns process X" would
+    // otherwise be swallowed by the doc-owner "who owns" pattern below.
+    const processOwnerCmd = parseProcessOwnerCommand(cleanText);
+    if (processOwnerCmd) {
+      if (processOwnerCmd.type === 'assign') {
+        const result = assignProcessOwner(processOwnerCmd.topicName, processOwnerCmd.newOwnerId, user, processOwnerCmd.keywords);
+        await say({ text: result.message, thread_ts });
+        return;
+      }
+
+      if (processOwnerCmd.type === 'who') {
+        const owners = loadProcessOwners();
+        const key = processOwnerCmd.topicName.trim().toLowerCase().replace(/\s+/g, '-');
+        const entry = owners[key];
+        const owner = entry?.owner;
+        const response = owner && owner.startsWith('U')
+          ? `The process owner for *${key}* is <@${owner}>.`
+          : `*${key}* has no assigned process owner yet. Use \`assign process owner of ${processOwnerCmd.topicName} to @user\` to set one.`;
+        await say({ text: response, thread_ts });
+        return;
+      }
+
+      if (processOwnerCmd.type === 'list') {
+        const owners = loadProcessOwners();
+        const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
+        const response = entries.length > 0
+          ? '*Process owners:*\n' + entries
+              .map(([topic, info]) => {
+                const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+                return `• *${topic}* — ${owner}`;
+              })
+              .join('\n')
+          : 'No process owners have been tagged yet.';
+        await say({ text: response, thread_ts });
+        return;
+      }
+    }
+
     const ownerCmd = parseOwnerCommand(cleanText);
     console.log(`[app_mention] cleanText="${cleanText}" ownerCmd=${JSON.stringify(ownerCmd)}`);
 

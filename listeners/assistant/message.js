@@ -4,7 +4,8 @@ import { judgeFollowUp } from '../../agent/thread-resolver.js';
 import { draftCorrection } from '../../agent/draft-generator.js';
 import { notifyStakeholder } from '../../agent/notify-stakeholder.js';
 import { loadDocOwners, assignOwner } from '../../agent/doc-owners.js';
-import { parseOwnerCommand } from '../events/app_mention.js';
+import { assignProcessOwner, loadProcessOwners } from '../../agent/process-owners.js';
+import { parseOwnerCommand, parseProcessOwnerCommand } from '../events/app_mention.js';
 
 /**
  * Handles when users send messages or select a prompt in an assistant thread
@@ -33,6 +34,41 @@ export const message = async ({ client, context, logger, message, say, setStatus
   // else — otherwise they fall through to judgeFollowUp and get misread as a
   // regular follow-up/new question, same as app_mention.js and thread_reply.js.
   const cleanText = text.replace(/<@[A-Z0-9]+>\s*/, '').trim();
+
+  // Process-owner commands are checked first — "who owns process X" would
+  // otherwise be swallowed by the doc-owner "who owns" pattern below.
+  const processOwnerCmd = parseProcessOwnerCommand(cleanText);
+  if (processOwnerCmd) {
+    try {
+      if (processOwnerCmd.type === 'assign') {
+        const result = assignProcessOwner(processOwnerCmd.topicName, processOwnerCmd.newOwnerId, user, processOwnerCmd.keywords);
+        await say(result.message);
+      } else if (processOwnerCmd.type === 'who') {
+        const owners = loadProcessOwners();
+        const key = processOwnerCmd.topicName.trim().toLowerCase().replace(/\s+/g, '-');
+        const entry = owners[key];
+        const owner = entry?.owner;
+        const response = owner && owner.startsWith('U')
+          ? `The process owner for *${key}* is <@${owner}>.`
+          : `*${key}* has no assigned process owner yet. Use \`assign process owner of ${processOwnerCmd.topicName} to @user\` to set one.`;
+        await say(response);
+      } else if (processOwnerCmd.type === 'list') {
+        const owners = loadProcessOwners();
+        const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
+        const response = entries.length > 0
+          ? '*Process owners:*\n' + entries.map(([topic, info]) => {
+              const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+              return `• *${topic}* — ${owner}`;
+            }).join('\n')
+          : 'No process owners have been tagged yet.';
+        await say(response);
+      }
+    } catch (err) {
+      logger.error(`assistant message: process owner command failed: ${err.message}`);
+    }
+    return; // Don't also process as a correction or new question
+  }
+
   const ownerCmd = parseOwnerCommand(cleanText);
   if (ownerCmd) {
     logger.info(`assistant owner cmd: message.user=${user} context.userId=${context.userId} APP_CREATOR_ID=${process.env.APP_CREATOR_ID}`);

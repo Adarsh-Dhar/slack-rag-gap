@@ -3,7 +3,8 @@ import { judgeFollowUp } from '../../agent/thread-resolver.js';
 import { draftCorrection } from '../../agent/draft-generator.js';
 import { notifyStakeholder } from '../../agent/notify-stakeholder.js';
 import { loadDocOwners, assignOwner } from '../../agent/doc-owners.js';
-import { parseOwnerCommand } from './app_mention.js';
+import { assignProcessOwner, loadProcessOwners } from '../../agent/process-owners.js';
+import { parseOwnerCommand, parseProcessOwnerCommand } from './app_mention.js';
 
 /**
  * Handles follow-up messages posted in a thread where the bot previously
@@ -30,6 +31,41 @@ export async function threadReplyCallback({ event, client, logger }) {
   // Handle ownership commands (assign/set/transfer/who/list) before anything else.
   // These must work even in threads where the bot previously answered.
   const cleanText = text.replace(/<@[A-Z0-9]+>\s*/, '').trim();
+
+  // Process-owner commands are checked first — "who owns process X" would
+  // otherwise be swallowed by the doc-owner "who owns" pattern below.
+  const processOwnerCmd = parseProcessOwnerCommand(cleanText);
+  if (processOwnerCmd) {
+    try {
+      if (processOwnerCmd.type === 'assign') {
+        const result = assignProcessOwner(processOwnerCmd.topicName, processOwnerCmd.newOwnerId, user, processOwnerCmd.keywords);
+        await client.chat.postMessage({ channel, thread_ts, text: result.message });
+      } else if (processOwnerCmd.type === 'who') {
+        const owners = loadProcessOwners();
+        const key = processOwnerCmd.topicName.trim().toLowerCase().replace(/\s+/g, '-');
+        const entry = owners[key];
+        const owner = entry?.owner;
+        const response = owner && owner.startsWith('U')
+          ? `The process owner for *${key}* is <@${owner}>.`
+          : `*${key}* has no assigned process owner yet. Use \`assign process owner of ${processOwnerCmd.topicName} to @user\` to set one.`;
+        await client.chat.postMessage({ channel, thread_ts, text: response });
+      } else if (processOwnerCmd.type === 'list') {
+        const owners = loadProcessOwners();
+        const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
+        const response = entries.length > 0
+          ? '*Process owners:*\n' + entries.map(([topic, info]) => {
+              const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+              return `• *${topic}* — ${owner}`;
+            }).join('\n')
+          : 'No process owners have been tagged yet.';
+        await client.chat.postMessage({ channel, thread_ts, text: response });
+      }
+    } catch (err) {
+      logger.error(`threadReplyCallback: process owner command failed: ${err.message}`);
+    }
+    return; // Don't also process as a correction
+  }
+
   const ownerCmd = parseOwnerCommand(cleanText);
   if (ownerCmd) {
     try {
