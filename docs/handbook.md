@@ -1,3 +1,10 @@
+---
+title: Update on Client Meal Expenses
+status: pending_review
+edit_of: handbook.md
+source_thread: https://e0bf8agtccf-iceki877.slack.com/archives/C0BF8AEMVL7/p1783603005745599?thread_ts=1783603005.745599&cid=C0BF8AEMVL7
+created_at: 2026-07-09T13:17:20.325Z
+---
 # Company Handbook (Sample)
 
 ## Vacation Policy
@@ -8,7 +15,7 @@ Vacation requests must be submitted in Slack via the #time-off channel at least 
 
 ## Expense Reimbursement
 
-Employees may submit expense reports for approved business expenses including client meals (up to $75 per person), travel, and necessary software subscriptions. Reports must be submitted within 30 days of the expense with itemized receipts attached. Reimbursements are processed within 10 business days.
+Employees may submit expense reports for approved business expenses including client meals (up to $50 per person), travel, and necessary software subscriptions. Reports must be submitted within 30 days of the expense with itemized receipts attached. Reimbursements are processed within 10 business days.
 
 ## Remote Work Policy
 

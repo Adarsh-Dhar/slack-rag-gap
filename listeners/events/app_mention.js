@@ -51,6 +51,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     console.log(`[app_mention] cleanText="${cleanText}" ownerCmd=${JSON.stringify(ownerCmd)}`);
 
     if (ownerCmd) {
+      console.log(`[app_mention] owner cmd: event.user=${user} APP_CREATOR_ID=${process.env.APP_CREATOR_ID} match=${user === process.env.APP_CREATOR_ID}`);
       if (ownerCmd.type === 'assign') {
         const result = assignOwner(ownerCmd.docName, ownerCmd.newOwnerId, user);
         await say({ text: result.message, thread_ts });

@@ -3,7 +3,8 @@ import { getLastAnswerForThread } from '../../agent/rag.js';
 import { judgeFollowUp } from '../../agent/thread-resolver.js';
 import { draftCorrection } from '../../agent/draft-generator.js';
 import { notifyStakeholder } from '../../agent/notify-stakeholder.js';
-import { loadDocOwners } from '../../agent/doc-owners.js';
+import { loadDocOwners, assignOwner } from '../../agent/doc-owners.js';
+import { parseOwnerCommand } from '../events/app_mention.js';
 
 /**
  * Handles when users send messages or select a prompt in an assistant thread
@@ -27,6 +28,43 @@ export const message = async ({ client, context, logger, message, say, setStatus
   logger.info(`assistant message received: "${message.text?.slice(0, 80)}"`);
 
   const { channel, thread_ts, text, user } = message;
+
+  // Handle ownership commands (assign/set/transfer/who/list) before anything
+  // else — otherwise they fall through to judgeFollowUp and get misread as a
+  // regular follow-up/new question, same as app_mention.js and thread_reply.js.
+  const cleanText = text.replace(/<@[A-Z0-9]+>\s*/, '').trim();
+  const ownerCmd = parseOwnerCommand(cleanText);
+  if (ownerCmd) {
+    logger.info(`assistant owner cmd: message.user=${user} context.userId=${context.userId} APP_CREATOR_ID=${process.env.APP_CREATOR_ID}`);
+    try {
+      if (ownerCmd.type === 'assign') {
+        const result = assignOwner(ownerCmd.docName, ownerCmd.newOwnerId, user);
+        await say(result.message);
+      } else if (ownerCmd.type === 'who') {
+        const owners = loadDocOwners();
+        const key = ownerCmd.docName.endsWith('.md') ? ownerCmd.docName : `${ownerCmd.docName}.md`;
+        const entry = owners[key];
+        const owner = entry?.owner;
+        const response = owner && owner.startsWith('U')
+          ? `The owner of *${key}* is <@${owner}>.`
+          : `*${key}* has no assigned owner yet. Use \`assign owner of ${ownerCmd.docName} to @user\` to set one.`;
+        await say(response);
+      } else if (ownerCmd.type === 'list') {
+        const owners = loadDocOwners();
+        const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
+        const response = entries.length > 0
+          ? '*Document owners:*\n' + entries.map(([doc, info]) => {
+              const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+              return `• *${doc}* — ${owner}`;
+            }).join('\n')
+          : 'No documents have been registered yet.';
+        await say(response);
+      }
+    } catch (err) {
+      logger.error(`assistant message: owner command failed: ${err.message}`);
+    }
+    return; // Don't also process as a correction or new question
+  }
 
   // Check if this is a follow-up reply to a thread the bot already answered.
   // If so, run correction detection BEFORE treating it as a new question.
