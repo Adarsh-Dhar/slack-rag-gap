@@ -3,15 +3,7 @@ import { getLastAnswerForThread } from '../../agent/rag.js';
 import { judgeFollowUp } from '../../agent/thread-resolver.js';
 import { draftCorrection } from '../../agent/draft-generator.js';
 import { notifyStakeholder } from '../../agent/notify-stakeholder.js';
-import fs from 'fs';
-import path from 'path';
-
-const DOC_OWNERS_PATH = path.join(process.cwd(), 'doc-owners.json');
-
-function loadDocOwners() {
-  if (!fs.existsSync(DOC_OWNERS_PATH)) return {};
-  try { return JSON.parse(fs.readFileSync(DOC_OWNERS_PATH, 'utf-8')); } catch { return {}; }
-}
+import { loadDocOwners } from '../../agent/doc-owners.js';
 
 /**
  * Handles when users send messages or select a prompt in an assistant thread
@@ -22,6 +14,13 @@ function loadDocOwners() {
 export const message = async ({ client, context, logger, message, say, setStatus }) => {
   if (!('text' in message) || !('thread_ts' in message) || !message.text || !message.thread_ts) {
     logger.info('assistant message: skipping — missing text or thread_ts');
+    return;
+  }
+
+  // Only handle messages in DM / assistant panel threads.
+  // Channel messages are handled by threadReplyCallback (events/thread_reply.js)
+  // and appMentionCallback (events/app_mention.js).
+  if (message.channel_type === 'channel' || message.channel_type === 'group') {
     return;
   }
 
@@ -51,9 +50,14 @@ export const message = async ({ client, context, logger, message, say, setStatus
           const docOwners = loadDocOwners();
           const ownerId = docOwners[docSource]?.owner ?? null;
           if (!ownerId) logger.warn(`assistant message: no owner for "${docSource}" — using STAKEHOLDER_USER_ID`);
-          await notifyStakeholder(client, { ...draft, permalink: draft.filePath }, ownerId);
-          logger.info(`assistant message: correction draft sent for "${docSource}"`);
-          await say(`Got it — I've flagged that correction for review. The doc owner will be notified to update *${docSource}*.`);
+          try {
+            await notifyStakeholder(client, { ...draft, permalink: draft.filePath }, ownerId);
+            logger.info(`assistant message: correction draft sent for "${docSource}"`);
+            await say(`Got it — I've flagged that correction for review. The doc owner will be notified to update *${docSource}*.`);
+          } catch (notifyErr) {
+            logger.error(`assistant message: notifyStakeholder failed: ${notifyErr.message}`);
+            await say(`Got it — I've captured that correction for review. (Note: couldn't notify the doc owner, but the draft has been saved.)`);
+          }
         } catch (err) {
           logger.error(`assistant message: correction flow failed: ${err.message}`);
         }

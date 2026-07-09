@@ -1,21 +1,43 @@
 import { callLLM } from '../../agent/llm-caller.js';
-import { getLastAnswerForThread } from '../../agent/rag.js';
-import { judgeFollowUp } from '../../agent/thread-resolver.js';
-import { draftCorrection } from '../../agent/draft-generator.js';
-import { notifyStakeholder } from '../../agent/notify-stakeholder.js';
-import fs from 'fs';
-import path from 'path';
+import { assignOwner, loadDocOwners } from '../../agent/doc-owners.js';
 
-const DOC_OWNERS_PATH = path.join(process.cwd(), 'doc-owners.json');
-function loadDocOwners() {
-  if (!fs.existsSync(DOC_OWNERS_PATH)) return {};
-  try { return JSON.parse(fs.readFileSync(DOC_OWNERS_PATH, 'utf-8')); } catch { return {}; }
+/**
+ * Parses an ownership command from the text (after the bot @mention is stripped).
+ * Returns null if the text doesn't match any ownership command pattern.
+ *
+ * Supported commands:
+ *   assign|set|transfer owner of <doc> to <@user>
+ *   who owns <doc>
+ *   list [doc] owners
+ *
+ * @param {string} text - Message text with bot @mention already removed
+ * @returns {{ type: 'assign'|'who'|'list', docName?: string, newOwnerId?: string } | null}
+ */
+export function parseOwnerCommand(text) {
+  const assignMatch = text.match(
+    /^(?:assign|set|transfer)\s+owner(?:ship)?\s+(?:of|for)\s+(.+?)\s+to\s+<@([A-Z0-9]+)>/i,
+  );
+  if (assignMatch) {
+    return { type: 'assign', docName: assignMatch[1].trim(), newOwnerId: assignMatch[2] };
+  }
+
+  const whoMatch = text.match(/^who\s+owns\s+(.+)/i);
+  if (whoMatch) {
+    return { type: 'who', docName: whoMatch[1].trim() };
+  }
+
+  if (/^list\s+(?:doc\s+)?owners/i.test(text.trim())) {
+    return { type: 'list' };
+  }
+
+  return null;
 }
 
 /**
  * Handles the event when the app is mentioned in a Slack conversation.
- * If the mention is a reply in a thread the bot already answered, runs
- * correction detection first before treating it as a new question.
+ * Ownership commands (assign/set/transfer/who/list) are processed here
+ * regardless of threading. All other threaded @mentions are deferred to
+ * threadReplyCallback (events/thread_reply.js).
  */
 export const appMentionCallback = async ({ event, client, logger, say }) => {
   console.log(`[app_mention] ts=${event.ts} thread_ts=${event.thread_ts ?? 'none'} text="${event.text?.slice(0, 80)}"`);
@@ -23,36 +45,51 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     const { channel, text, team, user } = event;
     const thread_ts = event.thread_ts || event.ts;
 
-    // If this @mention is a reply in a thread the bot already answered,
-    // check for corrections before answering as a new question.
-    if (event.thread_ts) {
-      const lastAnswer = getLastAnswerForThread(channel, event.thread_ts);
-      console.log(`[app_mention] thread reply — lastAnswer=${JSON.stringify(lastAnswer?.question?.slice(0,40))} sources=${JSON.stringify(lastAnswer?.sources)}`);
-      if (lastAnswer && lastAnswer.sources.length > 0) {
-        logger.info(`app_mention: reply in answered thread — running judgeFollowUp`);
-        try {
-          const { label, correctedText, correctedSources } = await judgeFollowUp(
-            lastAnswer.question,
-            lastAnswer.sources,
-            [{ user, text }],
-            lastAnswer.answerText,
-          );
-          console.log(`[app_mention] judgeFollowUp label="${label}" correctedText="${correctedText?.slice(0,60)}"`);
-          logger.info(`app_mention: judgeFollowUp label="${label}"`);
-          if (label === 'correction') {
-            const docSource = correctedSources.length > 0 ? correctedSources[0] : lastAnswer.sources[0];
-            const { permalink } = await client.chat.getPermalink({ channel, message_ts: event.thread_ts });
-            const draft = await draftCorrection({ docSource, correctionText: correctedText, permalink });
-            const ownerId = loadDocOwners()[docSource]?.owner ?? null;
-            await notifyStakeholder(client, { ...draft, permalink: draft.filePath }, ownerId);
-            await say({ text: `Got it — I've flagged that correction for review. The doc owner will be notified to update *${docSource}*.`, thread_ts });
-            return;
-          }
-        } catch (err) {
-          logger.error(`app_mention: correction flow failed: ${err.message}`);
-          // Fall through to normal answer
-        }
+    // Strip the bot @mention prefix from the text for command parsing
+    const cleanText = text.replace(/<@[A-Z0-9]+>\s*/, '').trim();
+    const ownerCmd = parseOwnerCommand(cleanText);
+    console.log(`[app_mention] cleanText="${cleanText}" ownerCmd=${JSON.stringify(ownerCmd)}`);
+
+    if (ownerCmd) {
+      if (ownerCmd.type === 'assign') {
+        const result = assignOwner(ownerCmd.docName, ownerCmd.newOwnerId, user);
+        await say({ text: result.message, thread_ts });
+        return;
       }
+
+      if (ownerCmd.type === 'who') {
+        const owners = loadDocOwners();
+        const key = ownerCmd.docName.endsWith('.md') ? ownerCmd.docName : `${ownerCmd.docName}.md`;
+        const entry = owners[key];
+        const owner = entry?.owner;
+        const response = owner && owner.startsWith('U')
+          ? `The owner of *${key}* is <@${owner}>.`
+          : `*${key}* has no assigned owner yet. Use \`assign owner of ${ownerCmd.docName} to @user\` to set one.`;
+        await say({ text: response, thread_ts });
+        return;
+      }
+
+      if (ownerCmd.type === 'list') {
+        const owners = loadDocOwners();
+        const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
+        const response = entries.length > 0
+          ? '*Document owners:*\n' + entries
+              .map(([doc, info]) => {
+                const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+                return `• *${doc}* — ${owner}`;
+              })
+              .join('\n')
+          : 'No documents have been registered yet.';
+        await say({ text: response, thread_ts });
+        return;
+      }
+    }
+
+    // Skip threaded @mentions — threadReplyCallback handles corrections
+    // and follow-ups for replies in threads where the bot already answered.
+    if (event.thread_ts) {
+      logger.info(`app_mention: threaded reply detected — deferring to threadReplyCallback`);
+      return;
     }
 
     const streamer = client.chatStream({

@@ -1,21 +1,9 @@
-import fs from 'fs';
-import path from 'path';
-import { WebClient } from '@slack/web-api';
 import { getLastAnswerForThread } from '../../agent/rag.js';
 import { judgeFollowUp } from '../../agent/thread-resolver.js';
 import { draftCorrection } from '../../agent/draft-generator.js';
 import { notifyStakeholder } from '../../agent/notify-stakeholder.js';
-
-const DOC_OWNERS_PATH = path.join(process.cwd(), 'doc-owners.json');
-
-function loadDocOwners() {
-  if (!fs.existsSync(DOC_OWNERS_PATH)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(DOC_OWNERS_PATH, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
+import { loadDocOwners, assignOwner } from '../../agent/doc-owners.js';
+import { parseOwnerCommand } from './app_mention.js';
 
 /**
  * Handles follow-up messages posted in a thread where the bot previously
@@ -38,6 +26,41 @@ export async function threadReplyCallback({ event, client, logger }) {
 
   // Only process threaded replies that aren't the bot's own messages
   if (!thread_ts || !text || !user) return;
+
+  // Handle ownership commands (assign/set/transfer/who/list) before anything else.
+  // These must work even in threads where the bot previously answered.
+  const cleanText = text.replace(/<@[A-Z0-9]+>\s*/, '').trim();
+  const ownerCmd = parseOwnerCommand(cleanText);
+  if (ownerCmd) {
+    try {
+      if (ownerCmd.type === 'assign') {
+        const result = assignOwner(ownerCmd.docName, ownerCmd.newOwnerId, user);
+        await client.chat.postMessage({ channel, thread_ts, text: result.message });
+      } else if (ownerCmd.type === 'who') {
+        const owners = loadDocOwners();
+        const key = ownerCmd.docName.endsWith('.md') ? ownerCmd.docName : `${ownerCmd.docName}.md`;
+        const entry = owners[key];
+        const owner = entry?.owner;
+        const response = owner && owner.startsWith('U')
+          ? `The owner of *${key}* is <@${owner}>.`
+          : `*${key}* has no assigned owner yet. Use \`assign owner of ${ownerCmd.docName} to @user\` to set one.`;
+        await client.chat.postMessage({ channel, thread_ts, text: response });
+      } else if (ownerCmd.type === 'list') {
+        const owners = loadDocOwners();
+        const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
+        const response = entries.length > 0
+          ? '*Document owners:*\n' + entries.map(([doc, info]) => {
+              const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+              return `• *${doc}* — ${owner}`;
+            }).join('\n')
+          : 'No documents have been registered yet.';
+        await client.chat.postMessage({ channel, thread_ts, text: response });
+      }
+    } catch (err) {
+      logger.error(`threadReplyCallback: owner command failed: ${err.message}`);
+    }
+    return; // Don't also process as a correction
+  }
 
   // Look up the original bot answer for this thread
   const lastAnswer = getLastAnswerForThread(channel, thread_ts);
@@ -95,9 +118,22 @@ export async function threadReplyCallback({ event, client, logger }) {
     );
   }
 
+  let notifyFailed = false;
   try {
     await notifyStakeholder(client, { ...draft, permalink: draft.filePath }, ownerId);
   } catch (err) {
+    notifyFailed = true;
     logger.error(`threadReplyCallback: notifyStakeholder failed: ${err.message}`);
+  }
+
+  // Always confirm to the user that the correction was captured, even if
+  // the DM notification failed — the draft file still exists in docs/drafts/.
+  try {
+    const msg = notifyFailed
+      ? `Got it — I've captured that correction for review. (Note: couldn't notify the doc owner, but the draft has been saved.)`
+      : `Got it — I've flagged that correction for review. The doc owner will be notified to update *${docSource}*.`;
+    await client.chat.postMessage({ channel, thread_ts, text: msg });
+  } catch (err) {
+    logger.error(`threadReplyCallback: failed to post confirmation: ${err.message}`);
   }
 }

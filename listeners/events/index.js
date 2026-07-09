@@ -11,8 +11,9 @@ export const register = (app) => {
   // on threads where the bot previously answered a question.
   app.event('message', async ({ event, client, logger }) => {
     logger.info(`message event: subtype=${event.subtype ?? 'none'} bot_id=${event.bot_id ?? 'none'} thread_ts=${event.thread_ts ?? 'none'} channel_type=${event.channel_type ?? 'none'}`);
-    // Only handle replies in existing threads (not fresh messages or bot messages)
-    if (!event.thread_ts || event.subtype === 'bot_message' || event.bot_id) return;
+    // Only handle new threaded replies — skip bot messages, message_changed,
+    // and other non-user subtypes to avoid re-processing edits or duplicates.
+    if (!event.thread_ts || event.subtype === 'bot_message' || event.subtype === 'message_changed' || event.bot_id) return;
     await threadReplyCallback({ event, client, logger });
   });
 };
