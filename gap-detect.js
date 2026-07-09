@@ -4,7 +4,7 @@ import path from 'path';
 import { WebClient } from '@slack/web-api';
 import { judgeResolution } from './agent/thread-resolver.js';
 import { draftStub } from './agent/draft-generator.js';
-import { notifyStakeholder } from './agent/notify-stakeholder.js';
+import { notifyStakeholder, pingForExplanation } from './agent/notify-stakeholder.js';
 import { embed, cosineSimilarity, recencyWeight } from './agent/embeddings.js';
 import { resolveOwner, recordResolution } from './agent/sme-router.js';
 
@@ -143,7 +143,22 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
       .map((m) => ({ user: m.user, text: m.text }));
 
     const { resolved, resolvingText, resolvingUser } = await judgeResolution(cluster.representative, replies);
-    if (!resolved) return;
+
+    if (!resolved) {
+      // Nobody has explained this yet, but the cluster is big enough to be
+      // worth chasing — proactively ask, rather than waiting silently for
+      // someone to volunteer. Re-runs each cycle will ping again as long as
+      // it stays unresolved; there's no cooldown here by design.
+      const topicEmbedding = await embed(cluster.representative);
+      const { userId, reason } = await resolveOwner(topicEmbedding, cluster.representative);
+      await pingForExplanation(
+        slack,
+        { question: cluster.representative, hitCount: cluster.hitCount, channel, thread_ts },
+        userId,
+        reason,
+      );
+      return;
+    }
 
     const topicEmbedding = await embed(cluster.representative);
 
@@ -175,7 +190,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
   }
 }
 
-async function main() {
+export async function main() {
   const queries = loadUnansweredQueries();
 
   if (queries.length === 0) {
@@ -220,4 +235,10 @@ async function main() {
   }
 }
 
-main();
+// Only run main() when this file is executed directly, not when imported by
+// scheduler.js or tests.
+const isMain = process.argv[1] && (
+  process.argv[1].endsWith('/gap-detect.js') ||
+  process.argv[1].endsWith('\\gap-detect.js')
+);
+if (isMain) main();

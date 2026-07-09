@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { App, LogLevel } from '@slack/bolt';
 import { registerListeners } from './listeners/index.js';
 import { ingestFile } from './ingest.js';
+import { startScheduler } from './scheduler.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -111,6 +112,16 @@ process.on('unhandledRejection', (reason) => {
     await ingestDocs();   // wait — app doesn't start until data is ready
     await app.start();
     console.log('⚡️ Bolt app started');
+
+    // Runs gap-detect / staleness-detect on a recurring interval in-process,
+    // so no separate cron entry or manual `npm run gap-detect` is needed for
+    // local dev. Set ENABLE_SCHEDULER=false to disable (e.g. if you're
+    // running scheduler.js separately, or via an external cron job instead).
+    if (process.env.ENABLE_SCHEDULER !== 'false') {
+      startScheduler();
+    } else {
+      console.log('[scheduler] disabled via ENABLE_SCHEDULER=false');
+    }
   } catch (error) {
     console.error('Failed to start app:', error);
     process.exit(1);

@@ -73,3 +73,73 @@ export async function notifyStakeholder(client, draft, userId, reason) {
     ],
   });
 }
+
+/**
+ * Proactively asks the routed SME (or default stakeholder) to explain a
+ * question that a gap cluster has accumulated hits on, but that nobody has
+ * answered yet — the counterpart to notifyStakeholder(), which only fires
+ * *after* someone has already explained it somewhere.
+ *
+ * Sends both:
+ *   1. An @-mention reply in the original Slack thread, so anyone else
+ *      watching that thread sees the ask and can jump in too.
+ *   2. A DM to the same person, so it isn't easy to miss in a busy channel.
+ *
+ * No dedupe/cooldown by design — if the cluster is still unresolved next
+ * time gap-detect runs, it pings again. Tune SCHEDULER_INTERVAL_MS if that
+ * cadence is too chatty for your workspace.
+ *
+ * @param {import("@slack/web-api").WebClient} client
+ * @param question: string, hitCount: number, channel: string, thread_ts: string gap
+ * @param {string|null} [userId] - Slack user ID to ping. Falls back to
+ *   STAKEHOLDER_USER_ID when omitted or null.
+ * @param {string} [reason] - Human-readable routing reason, appended to the
+ *   DM so the person knows why they were picked.
+ */
+export async function pingForExplanation(client, gap, userId, reason) {
+  const targetUserId = userId || process.env.STAKEHOLDER_USER_ID;
+  if (!targetUserId) {
+    console.warn('No SME resolved and STAKEHOLDER_USER_ID not set — skipping explanation ping.');
+    return;
+  }
+
+  const { question, hitCount, channel, thread_ts } = gap;
+  const plural = hitCount === 1 ? 'person has' : 'people have';
+  const askText = `<@${targetUserId}> ${hitCount} ${plural} asked something like this and I don't have a doc for it yet: *"${question}"*\nCould you explain it in a couple sentences here? I'll turn it into a doc automatically.`;
+
+  // 1. Reply in the original thread — visible to anyone else following along.
+  try {
+    await client.chat.postMessage({ channel, thread_ts, text: askText });
+  } catch (err) {
+    console.error(`pingForExplanation: failed to post in-thread ping: ${err.message}`);
+  }
+
+  // 2. DM the same ask directly, so it's not easy to miss.
+  try {
+    const { channel: dm } = await client.conversations.open({ users: targetUserId });
+    await client.chat.postMessage({
+      channel: dm.id,
+      text: `A doc gap needs your input: "${question}"`,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*${hitCount} ${plural} asked this and there's no doc yet:*\n"${question}"`,
+          },
+        },
+        {
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: `Reply in the thread and I'll draft a doc from it${reason ? ` · routed via ${reason}` : ''}`,
+            },
+          ],
+        },
+      ],
+    });
+  } catch (err) {
+    console.error(`pingForExplanation: failed to DM ${targetUserId}: ${err.message}`);
+  }
+}

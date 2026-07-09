@@ -67,7 +67,7 @@ export function isInCooldown(storedTimestamp, now) {
   return now - storedMs < COOLDOWN_MS;
 }
 
-async function main() {
+export async function main() {
   const STALENESS_THRESHOLD = parseThreshold(process.env.STALENESS_THRESHOLD);
 
   // Load doc-usage.json; exit cleanly if absent or empty
