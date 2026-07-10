@@ -33,11 +33,16 @@ export const message = async ({ client, context, logger, message, say, setStatus
   // Handle ownership commands (assign/set/transfer/who/list) before anything
   // else — otherwise they fall through to judgeFollowUp and get misread as a
   // regular follow-up/new question, same as app_mention.js and thread_reply.js.
-  const cleanText = text.replace(/<@[A-Z0-9]+>\s*/, '').trim();
+  //
+  // IMPORTANT: parse commands from the RAW text, not cleanText.  The "assign"
+  // regex needs the target <@USERID> mention intact, but cleanText strips
+  // the first mention it finds — which in the assistant panel (no bot
+  // @-mention prefix) is the user mention the command needs.
+  const cleanText = text.replace(/<@[A-Z0-9]+>/g, '').trim();
 
   // Process-owner commands are checked first — "who owns process X" would
   // otherwise be swallowed by the doc-owner "who owns" pattern below.
-  const processOwnerCmd = parseProcessOwnerCommand(cleanText);
+  const processOwnerCmd = parseProcessOwnerCommand(text);
   if (processOwnerCmd) {
     try {
       if (processOwnerCmd.type === 'assign') {
@@ -79,7 +84,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
     return; // Don't also process as a correction or new question
   }
 
-  const ownerCmd = parseOwnerCommand(cleanText);
+  const ownerCmd = parseOwnerCommand(text);
   if (ownerCmd) {
     logger.info(
       `assistant owner cmd: message.user=${user} context.userId=${context.userId} APP_CREATOR_ID=${process.env.APP_CREATOR_ID}`,

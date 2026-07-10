@@ -7,12 +7,13 @@ import { notifyStakeholder } from './agent/notify-stakeholder.js';
 import { readJSON, withFileLockSync, writeJSONAtomic } from './agent/store.js';
 
 const docOwnersPath = path.join(process.cwd(), 'doc-owners.json');
-const docOwners = fs.existsSync(docOwnersPath) ? JSON.parse(fs.readFileSync(docOwnersPath, 'utf-8')) : {};
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 const USAGE_PATH = path.join(process.cwd(), 'doc-usage.json');
 const NOTIFIED_PATH = path.join(process.cwd(), 'staleness-notified.json');
+const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');
+const DOCS_DIR = path.join(process.cwd(), 'docs');
 
 export const COOLDOWN_MS = 168 * 60 * 60 * 1000; // 7 days in milliseconds
 
@@ -72,6 +73,10 @@ export function isInCooldown(storedTimestamp, now) {
 }
 
 export async function main() {
+  // Re-read doc-owners.json on every run so ownership changes made via
+  // Slack commands (or manual edits) are picked up without a restart.
+  const docOwners = fs.existsSync(docOwnersPath) ? JSON.parse(fs.readFileSync(docOwnersPath, 'utf-8')) : {};
+
   const STALENESS_THRESHOLD = parseThreshold(process.env.STALENESS_THRESHOLD);
 
   // Load doc-usage.json; exit cleanly if absent or empty
@@ -132,13 +137,40 @@ export async function main() {
     }
 
     // Build the staleness draft object
+    const slug = `${slugify(docName)}-staleness-review`;
     const draft = {
-      slug: `${slugify(docName)}-staleness-review`,
+      slug,
       title: `${docName} — Staleness Review`,
       summary: `Staleness score: ${stalenessScore.toFixed(2)} (${citedCount} citations, ${followUpCount} follow-ups, ${correctionCount} corrections)`,
       permalink: '',
       diff: null,
     };
+
+    // Write the draft file to docs/drafts/ so the Approve/Edit/Reject
+    // buttons in the notification have an actual file to operate on.
+    // Without this, draftApprovalCallback always returns "Draft not found".
+    fs.mkdirSync(DRAFTS_DIR, { recursive: true });
+    const draftFilePath = path.join(DRAFTS_DIR, `${slug}.md`);
+    const existingDocPath = path.join(DOCS_DIR, docName);
+    let existingContent = '';
+    try {
+      existingContent = fs.readFileSync(existingDocPath, 'utf-8');
+    } catch {
+      existingContent = `_(${docName} — original content not found)_`;
+    }
+    const frontmatter = [
+      '---',
+      `title: ${draft.title}`,
+      `status: staleness_review`,
+      `staleness_score: ${stalenessScore.toFixed(2)}`,
+      `cited_count: ${citedCount}`,
+      `follow_up_count: ${followUpCount}`,
+      `correction_count: ${correctionCount}`,
+      `created_at: ${new Date().toISOString()}`,
+      '---',
+      '',
+    ].join('\n');
+    fs.writeFileSync(draftFilePath, `${frontmatter}${existingContent}\n`);
 
     // Notify the doc owner
     try {

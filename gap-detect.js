@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { WebClient } from '@slack/web-api';
 import fs from 'fs';
 import path from 'path';
-import { draftStub } from './agent/draft-generator.js';
+import { draftStub, slugify } from './agent/draft-generator.js';
 import { cosineSimilarity, embed, recencyWeight } from './agent/embeddings.js';
 import { recordFailure } from './agent/failure-counter.js';
 import log from './agent/logger.js';
@@ -48,6 +48,40 @@ function markResolved(slug) {
     fresh.add(slug);
     writeJSONAtomic(RESOLVED_GAPS_PATH, [...fresh]);
   });
+}
+
+/**
+ * Checks whether a cluster's representative question overlaps with any
+ * already-resolved gap slug. Uses token overlap so that a draft titled
+ * "wifi password information" (slug: "wifi-password-information") matches
+ * a cluster question like "@bot what's the wifi password" even though
+ * their raw slugs differ.
+ *
+ * @param {string} representative - cluster's representative question text
+ * @param {Set<string>} resolvedSlugs
+ * @returns {boolean}
+ */
+function clusterMatchesResolvedSlug(representative, resolvedSlugs) {
+  if (resolvedSlugs.size === 0) return false;
+
+  // Strip Slack @mentions before slugifying
+  const cleanText = representative.replace(/<@[A-Z0-9]+>\s*/g, '').trim();
+  const slug = slugify(cleanText);
+  const questionTokens = new Set(slug.split('-').filter((t) => t.length > 2));
+  if (questionTokens.size === 0) return false;
+
+  for (const resolved of resolvedSlugs) {
+    const resolvedTokens = new Set(resolved.split('-').filter((t) => t.length > 2));
+    if (resolvedTokens.size === 0) continue;
+
+    let overlap = 0;
+    for (const t of resolvedTokens) {
+      if (questionTokens.has(t)) overlap++;
+    }
+    // Match if ≥50 % of the resolved-slug tokens appear in the question
+    if (overlap / resolvedTokens.size >= 0.5) return true;
+  }
+  return false;
 }
 
 /**
@@ -125,6 +159,17 @@ function rankClusters(clusters) {
  * @param {string} botUserId - cached bot user ID from a single auth.test() call
  */
 async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
+  // Early exit: skip clusters whose representative question overlaps with
+  // an already-resolved gap slug. Without this, the unresolved-ping path
+  // below fires every scheduler cycle for gaps that already have a draft.
+  if (clusterMatchesResolvedSlug(cluster.representative, resolvedSlugs)) {
+    log.info(
+      { module: 'gap-detect', cluster: cluster.representative },
+      'Skipping cluster — matches an already-resolved gap slug',
+    );
+    return;
+  }
+
   const withThread = cluster.members.filter((m) => m.channel && m.thread_ts);
   if (withThread.length === 0) return;
 

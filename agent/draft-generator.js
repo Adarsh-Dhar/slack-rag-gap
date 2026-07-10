@@ -7,7 +7,7 @@ const CHAT_MODEL = 'openai/gpt-4o-mini';
 const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');
 const DOCS_DIR = path.join(process.cwd(), 'docs');
 
-function slugify(s) {
+export function slugify(s) {
   return s
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')

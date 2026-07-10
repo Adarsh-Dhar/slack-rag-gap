@@ -30,11 +30,15 @@ export async function threadReplyCallback({ event, client, logger }) {
 
   // Handle ownership commands (assign/set/transfer/who/list) before anything else.
   // These must work even in threads where the bot previously answered.
-  const cleanText = text.replace(/<@[A-Z0-9]+>\s*/, '').trim();
+  //
+  // Parse from raw text — the "assign" regex needs the target <@USERID>
+  // mention intact.  cleanText strips mentions, which would break "assign
+  // owner of X to <@USER>".
+  const cleanText = text.replace(/<@[A-Z0-9]+>/g, '').trim();
 
   // Process-owner commands are checked first — "who owns process X" would
   // otherwise be swallowed by the doc-owner "who owns" pattern below.
-  const processOwnerCmd = parseProcessOwnerCommand(cleanText);
+  const processOwnerCmd = parseProcessOwnerCommand(text);
   if (processOwnerCmd) {
     try {
       if (processOwnerCmd.type === 'assign') {
@@ -76,7 +80,7 @@ export async function threadReplyCallback({ event, client, logger }) {
     return; // Don't also process as a correction
   }
 
-  const ownerCmd = parseOwnerCommand(cleanText);
+  const ownerCmd = parseOwnerCommand(text);
   if (ownerCmd) {
     try {
       if (ownerCmd.type === 'assign') {
