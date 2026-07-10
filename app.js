@@ -9,6 +9,26 @@ import { startScheduler } from './scheduler.js';
 const DOCS_DIR = path.join(process.cwd(), 'docs');
 
 /**
+ * Fail loudly at startup if required secrets are missing, instead of
+ * surfacing a cryptic error deep inside the first request that needs them
+ * (e.g. GITHUB_TOKEN missing only showing up as an OpenAIError on first
+ * LLM call). This is deliberately just an env-var presence check — see
+ * docs on secrets management for how to swap in a real secrets manager
+ * (AWS/GCP/Vault/Doppler) without touching anything downstream, since
+ * every call site already just reads process.env.X.
+ */
+function checkRequiredEnv() {
+  const required = ['SLACK_APP_TOKEN', 'SLACK_BOT_TOKEN', 'GITHUB_TOKEN', 'STAKEHOLDER_USER_ID', 'APP_CREATOR_ID'];
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length) {
+    console.error(
+      `\n❌ Missing required env vars: ${missing.join(', ')}\n   Set these in your .env file before starting the app.\n`,
+    );
+    process.exit(1);
+  }
+}
+
+/**
  * Verifies ChromaDB is reachable before starting the app.
  * Retries a few times to handle startup-order races (e.g. when slack run
  * restarts the app before ChromaDB is fully ready).
@@ -117,6 +137,7 @@ process.on('unhandledRejection', (reason) => {
 
 (async () => {
   try {
+    checkRequiredEnv();
     await checkChroma();
     await ingestDocs(); // wait — app doesn't start until data is ready
     await app.start();

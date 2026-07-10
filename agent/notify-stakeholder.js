@@ -1,3 +1,5 @@
+import { isRetryableSlackError, withRetry } from './with-retry.js';
+
 /**
  * DMs the routed SME (or the default stakeholder, if no SME could be
  * resolved) a draft stub for review.
@@ -18,62 +20,69 @@ export async function notifyStakeholder(client, draft, userId, reason) {
 
   // On Enterprise Grid, posting to a user ID directly fails with team_not_found.
   // conversations.open returns the correct IM channel ID for any workspace topology.
-  const { channel } = await client.conversations.open({ users: targetUserId });
+  const { channel } = await withRetry(() => client.conversations.open({ users: targetUserId }), {
+    isRetryable: isRetryableSlackError,
+    label: 'notifyStakeholder conversations.open',
+  });
   const dmChannelId = channel.id;
 
-  await client.chat.postMessage({
-    channel: dmChannelId,
-    text: `New doc draft ready for review: ${draft.title}`,
-    blocks: [
-      {
-        type: 'section',
-        text: { type: 'mrkdwn', text: `*New doc draft ready for review*\n*${draft.title}*\n${draft.summary}` },
-      },
-      {
-        type: 'context',
-        elements: [
+  await withRetry(
+    () =>
+      client.chat.postMessage({
+        channel: dmChannelId,
+        text: `New doc draft ready for review: ${draft.title}`,
+        blocks: [
           {
-            type: 'mrkdwn',
-            text: `Source thread: <${draft.permalink}|view conversation>${reason ? ` · routed via ${reason}` : ''}`,
+            type: 'section',
+            text: { type: 'mrkdwn', text: `*New doc draft ready for review*\n*${draft.title}*\n${draft.summary}` },
+          },
+          {
+            type: 'context',
+            elements: [
+              {
+                type: 'mrkdwn',
+                text: `Source thread: <${draft.permalink}|view conversation>${reason ? ` · routed via ${reason}` : ''}`,
+              },
+            ],
+          },
+          ...(draft.diff
+            ? [
+                {
+                  type: 'section',
+                  text: { type: 'mrkdwn', text: `\`\`\`\n${draft.diff}\n\`\`\`` },
+                },
+              ]
+            : []),
+          {
+            type: 'actions',
+            block_id: 'draft_review',
+            elements: [
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: 'Approve' },
+                style: 'primary',
+                action_id: 'draft_approve',
+                value: draft.slug,
+              },
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: 'Edit' },
+                action_id: 'draft_edit',
+                value: draft.slug,
+              },
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: 'Reject' },
+                style: 'danger',
+                action_id: 'draft_reject',
+                value: draft.slug,
+              },
+            ],
           },
         ],
-      },
-      ...(draft.diff
-        ? [
-            {
-              type: 'section',
-              text: { type: 'mrkdwn', text: `\`\`\`\n${draft.diff}\n\`\`\`` },
-            },
-          ]
-        : []),
-      {
-        type: 'actions',
-        block_id: 'draft_review',
-        elements: [
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: 'Approve' },
-            style: 'primary',
-            action_id: 'draft_approve',
-            value: draft.slug,
-          },
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: 'Edit' },
-            action_id: 'draft_edit',
-            value: draft.slug,
-          },
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: 'Reject' },
-            style: 'danger',
-            action_id: 'draft_reject',
-            value: draft.slug,
-          },
-        ],
-      },
-    ],
-  });
+      }),
+    { isRetryable: isRetryableSlackError, label: 'notifyStakeholder postMessage' },
+  );
 }
 
 /**
@@ -111,36 +120,46 @@ export async function pingForExplanation(client, gap, userId, reason) {
 
   // 1. Reply in the original thread — visible to anyone else following along.
   try {
-    await client.chat.postMessage({ channel, thread_ts, text: askText });
+    await withRetry(() => client.chat.postMessage({ channel, thread_ts, text: askText }), {
+      isRetryable: isRetryableSlackError,
+      label: 'pingForExplanation in-thread postMessage',
+    });
   } catch (err) {
     console.error(`pingForExplanation: failed to post in-thread ping: ${err.message}`);
   }
 
   // 2. DM the same ask directly, so it's not easy to miss.
   try {
-    const { channel: dm } = await client.conversations.open({ users: targetUserId });
-    await client.chat.postMessage({
-      channel: dm.id,
-      text: `A doc gap needs your input: "${question}"`,
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `*${hitCount} ${plural} asked this and there's no doc yet:*\n"${question}"`,
-          },
-        },
-        {
-          type: 'context',
-          elements: [
+    const { channel: dm } = await withRetry(() => client.conversations.open({ users: targetUserId }), {
+      isRetryable: isRetryableSlackError,
+      label: 'pingForExplanation conversations.open',
+    });
+    await withRetry(
+      () =>
+        client.chat.postMessage({
+          channel: dm.id,
+          text: `A doc gap needs your input: "${question}"`,
+          blocks: [
             {
-              type: 'mrkdwn',
-              text: `Reply in the thread and I'll draft a doc from it${reason ? ` · routed via ${reason}` : ''}`,
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `*${hitCount} ${plural} asked this and there's no doc yet:*\n"${question}"`,
+              },
+            },
+            {
+              type: 'context',
+              elements: [
+                {
+                  type: 'mrkdwn',
+                  text: `Reply in the thread and I'll draft a doc from it${reason ? ` · routed via ${reason}` : ''}`,
+                },
+              ],
             },
           ],
-        },
-      ],
-    });
+        }),
+      { isRetryable: isRetryableSlackError, label: 'pingForExplanation DM postMessage' },
+    );
   } catch (err) {
     console.error(`pingForExplanation: failed to DM ${targetUserId}: ${err.message}`);
   }

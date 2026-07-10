@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { OpenAI } from 'openai';
 import path from 'path';
+import { isRetryableLLMError, withRetry } from './with-retry.js';
 
 const openai = new OpenAI({
   apiKey: process.env.GITHUB_TOKEN,
@@ -28,24 +29,28 @@ function slugify(s) {
  * @returns {Promise<{slug: string, filePath: string, title: string, summary: string}>}
  */
 export async function draftStub({ question, resolvingText, permalink, hitCount }) {
-  const res = await openai.chat.completions.create({
-    model: CHAT_MODEL,
-    response_format: { type: 'json_object' },
-    messages: [
-      {
-        role: 'system',
-        content:
-          'Draft a short internal doc stub from a question and the reply that answered it. ' +
-          'Respond only with JSON: {"title": string, "summary": string, "body": string}. ' +
-          'title: <=8 words. summary: one sentence. body: markdown, 2-4 short paragraphs or a ' +
-          'bulleted list, written as documentation (not as a recap of the conversation).',
-      },
-      {
-        role: 'user',
-        content: `Question asked ${hitCount} time(s): ${question}\n\nAnswer that resolved it:\n${resolvingText}`,
-      },
-    ],
-  });
+  const res = await withRetry(
+    () =>
+      openai.chat.completions.create({
+        model: CHAT_MODEL,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Draft a short internal doc stub from a question and the reply that answered it. ' +
+              'Respond only with JSON: {"title": string, "summary": string, "body": string}. ' +
+              'title: <=8 words. summary: one sentence. body: markdown, 2-4 short paragraphs or a ' +
+              'bulleted list, written as documentation (not as a recap of the conversation).',
+          },
+          {
+            role: 'user',
+            content: `Question asked ${hitCount} time(s): ${question}\n\nAnswer that resolved it:\n${resolvingText}`,
+          },
+        ],
+      }),
+    { isRetryable: isRetryableLLMError, label: 'draftStub completion' },
+  );
 
   const { title, summary, body } = JSON.parse(res.choices[0].message.content);
   const slug = slugify(title);
@@ -93,29 +98,33 @@ export async function draftCorrection({ docSource, correctionText, permalink }) 
     throw new Error(`Source document not found: ${docSource}`);
   }
 
-  const res = await openai.chat.completions.create({
-    model: CHAT_MODEL,
-    response_format: { type: 'json_object' },
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are a technical editor. You will receive an existing document and a correction. ' +
-          'Produce a MINIMAL edit — change ONLY the sentences or sections directly contradicted by the correction. ' +
-          'Do NOT rewrite the full document. ' +
-          'Respond only with JSON: {"title": string, "summary": string, "body": string, "diff": string}. ' +
-          'title: <=8 words describing the correction. ' +
-          'summary: one sentence describing what was corrected. ' +
-          'body: the full corrected document in markdown. ' +
-          'diff: a unified diff string showing only the changed lines (empty string if no diff available).',
-      },
-      {
-        role: 'user',
-        content:
-          `Existing document (${docSource}):\n${originalContent}\n\n` + `Correction from user:\n${correctionText}`,
-      },
-    ],
-  });
+  const res = await withRetry(
+    () =>
+      openai.chat.completions.create({
+        model: CHAT_MODEL,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a technical editor. You will receive an existing document and a correction. ' +
+              'Produce a MINIMAL edit — change ONLY the sentences or sections directly contradicted by the correction. ' +
+              'Do NOT rewrite the full document. ' +
+              'Respond only with JSON: {"title": string, "summary": string, "body": string, "diff": string}. ' +
+              'title: <=8 words describing the correction. ' +
+              'summary: one sentence describing what was corrected. ' +
+              'body: the full corrected document in markdown. ' +
+              'diff: a unified diff string showing only the changed lines (empty string if no diff available).',
+          },
+          {
+            role: 'user',
+            content:
+              `Existing document (${docSource}):\n${originalContent}\n\n` + `Correction from user:\n${correctionText}`,
+          },
+        ],
+      }),
+    { isRetryable: isRetryableLLMError, label: 'draftCorrection completion' },
+  );
 
   const { title, summary, body, diff } = JSON.parse(res.choices[0].message.content);
   const slug = slugify(title);

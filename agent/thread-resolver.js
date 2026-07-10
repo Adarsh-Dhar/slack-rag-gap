@@ -1,5 +1,6 @@
 import { OpenAI } from 'openai';
 import { updateUsageLedger } from './usage-ledger.js';
+import { isRetryableLLMError, withRetry } from './with-retry.js';
 
 const openai = new OpenAI({
   apiKey: process.env.GITHUB_TOKEN,
@@ -24,24 +25,28 @@ export async function judgeResolution(question, replies) {
 
   const transcript = replies.map((r, i) => `[${i}] ${r.text}`).join('\n');
 
-  const res = await openai.chat.completions.create({
-    model: CHAT_MODEL,
-    response_format: { type: 'json_object' },
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You judge whether a Slack thread reply actually answers a question, ' +
-          'versus small talk, a punt, or another question. Respond only with JSON: ' +
-          '{"resolved": boolean, "resolving_index": number|null, "reason": string}. ' +
-          'resolving_index is the index of the single best answering reply, or null if none resolve it.',
-      },
-      {
-        role: 'user',
-        content: `Question: ${question}\n\nReplies:\n${transcript}`,
-      },
-    ],
-  });
+  const res = await withRetry(
+    () =>
+      openai.chat.completions.create({
+        model: CHAT_MODEL,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You judge whether a Slack thread reply actually answers a question, ' +
+              'versus small talk, a punt, or another question. Respond only with JSON: ' +
+              '{"resolved": boolean, "resolving_index": number|null, "reason": string}. ' +
+              'resolving_index is the index of the single best answering reply, or null if none resolve it.',
+          },
+          {
+            role: 'user',
+            content: `Question: ${question}\n\nReplies:\n${transcript}`,
+          },
+        ],
+      }),
+    { isRetryable: isRetryableLLMError, label: 'judgeResolution completion' },
+  );
 
   const parsed = JSON.parse(res.choices[0].message.content);
   const resolvingReply =
@@ -80,33 +85,37 @@ export async function judgeFollowUp(question, sources, replies, answerText = nul
 
   let parsed;
   try {
-    const res = await openai.chat.completions.create({
-      model: CHAT_MODEL,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content:
-            "You analyze a Slack thread reply to decide whether it indicates the bot's answer\n" +
-            'was sufficient, asks a follow-up question, or explicitly corrects wrong information.\n' +
-            "A correction is ANY reply that disputes, contradicts, or updates specific facts in the bot's answer.\n" +
-            'Respond only with JSON:\n' +
-            '{\n' +
-            '  "label": "resolved" | "follow-up-question" | "correction",\n' +
-            '  "corrected_text": string or null (the human\'s correction text, if label is correction),\n' +
-            '  "corrected_sources": string[] (filenames of docs the correction implicates, may be empty)\n' +
-            '}',
-        },
-        {
-          role: 'user',
-          content:
-            `Original question: ${question}\n` +
-            `Documents cited: ${sources.join(', ')}\n` +
-            (answerText ? `Bot's answer: ${answerText}\n` : '') +
-            `Replies:\n${transcript}`,
-        },
-      ],
-    });
+    const res = await withRetry(
+      () =>
+        openai.chat.completions.create({
+          model: CHAT_MODEL,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content:
+                "You analyze a Slack thread reply to decide whether it indicates the bot's answer\n" +
+                'was sufficient, asks a follow-up question, or explicitly corrects wrong information.\n' +
+                "A correction is ANY reply that disputes, contradicts, or updates specific facts in the bot's answer.\n" +
+                'Respond only with JSON:\n' +
+                '{\n' +
+                '  "label": "resolved" | "follow-up-question" | "correction",\n' +
+                '  "corrected_text": string or null (the human\'s correction text, if label is correction),\n' +
+                '  "corrected_sources": string[] (filenames of docs the correction implicates, may be empty)\n' +
+                '}',
+            },
+            {
+              role: 'user',
+              content:
+                `Original question: ${question}\n` +
+                `Documents cited: ${sources.join(', ')}\n` +
+                (answerText ? `Bot's answer: ${answerText}\n` : '') +
+                `Replies:\n${transcript}`,
+            },
+          ],
+        }),
+      { isRetryable: isRetryableLLMError, label: 'judgeFollowUp completion' },
+    );
 
     parsed = JSON.parse(res.choices[0].message.content);
   } catch (err) {

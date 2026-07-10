@@ -1,5 +1,6 @@
 import { OpenAI } from 'openai';
 import { logAnswer, retrieveContext } from './rag.js';
+import { isRetryableLLMError, withRetry } from './with-retry.js';
 
 // OpenAI-compatible client pointed at GitHub Models
 const openai = new OpenAI({
@@ -40,11 +41,17 @@ export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
     _logAnswerArgs = { question: latestUserMessage.content, channel, thread_ts };
   }
 
-  const stream = await openai.chat.completions.create({
-    model: CHAT_MODEL,
-    messages: prompts,
-    stream: true,
-  });
+  // Only retry stream *creation* — retrying mid-stream would duplicate
+  // tokens already sent to the user.
+  const stream = await withRetry(
+    () =>
+      openai.chat.completions.create({
+        model: CHAT_MODEL,
+        messages: prompts,
+        stream: true,
+      }),
+    { isRetryable: isRetryableLLMError, label: 'callLLM completion' },
+  );
 
   let accumulatedText = ''; // collect answer text for logAnswer
 
