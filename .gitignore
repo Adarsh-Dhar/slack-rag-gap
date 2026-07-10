@@ -9,3 +9,5 @@ sme-history.json
 process-owners.json
 doc-owners.json
 .kiro
+*.lock
+*.tmp
