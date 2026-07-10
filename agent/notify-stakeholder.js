@@ -39,10 +39,12 @@ export async function notifyStakeholder(client, draft, userId, reason) {
         ],
       },
       ...(draft.diff
-        ? [{
-            type: 'section',
-            text: { type: 'mrkdwn', text: `\`\`\`\n${draft.diff}\n\`\`\`` },
-          }]
+        ? [
+            {
+              type: 'section',
+              text: { type: 'mrkdwn', text: `\`\`\`\n${draft.diff}\n\`\`\`` },
+            },
+          ]
         : []),
       {
         type: 'actions',

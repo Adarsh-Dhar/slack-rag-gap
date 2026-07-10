@@ -1,5 +1,5 @@
 import { OpenAI } from 'openai';
-import { retrieveContext, logAnswer } from './rag.js';
+import { logAnswer, retrieveContext } from './rag.js';
 
 // OpenAI-compatible client pointed at GitHub Models
 const openai = new OpenAI({

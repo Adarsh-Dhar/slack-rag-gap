@@ -1,10 +1,10 @@
+import { assignOwner, loadDocOwners } from '../../agent/doc-owners.js';
+import { draftCorrection } from '../../agent/draft-generator.js';
 import { callLLM } from '../../agent/llm-caller.js';
+import { notifyStakeholder } from '../../agent/notify-stakeholder.js';
+import { assignProcessOwner, loadProcessOwners } from '../../agent/process-owners.js';
 import { getLastAnswerForThread } from '../../agent/rag.js';
 import { judgeFollowUp } from '../../agent/thread-resolver.js';
-import { draftCorrection } from '../../agent/draft-generator.js';
-import { notifyStakeholder } from '../../agent/notify-stakeholder.js';
-import { loadDocOwners, assignOwner } from '../../agent/doc-owners.js';
-import { assignProcessOwner, loadProcessOwners } from '../../agent/process-owners.js';
 import { parseOwnerCommand, parseProcessOwnerCommand } from '../events/app_mention.js';
 
 /**
@@ -41,26 +41,36 @@ export const message = async ({ client, context, logger, message, say, setStatus
   if (processOwnerCmd) {
     try {
       if (processOwnerCmd.type === 'assign') {
-        const result = assignProcessOwner(processOwnerCmd.topicName, processOwnerCmd.newOwnerId, user, processOwnerCmd.keywords);
+        const result = assignProcessOwner(
+          processOwnerCmd.topicName,
+          processOwnerCmd.newOwnerId,
+          user,
+          processOwnerCmd.keywords,
+        );
         await say(result.message);
       } else if (processOwnerCmd.type === 'who') {
         const owners = loadProcessOwners();
         const key = processOwnerCmd.topicName.trim().toLowerCase().replace(/\s+/g, '-');
         const entry = owners[key];
         const owner = entry?.owner;
-        const response = owner && owner.startsWith('U')
-          ? `The process owner for *${key}* is <@${owner}>.`
-          : `*${key}* has no assigned process owner yet. Use \`assign process owner of ${processOwnerCmd.topicName} to @user\` to set one.`;
+        const response =
+          owner && owner.startsWith('U')
+            ? `The process owner for *${key}* is <@${owner}>.`
+            : `*${key}* has no assigned process owner yet. Use \`assign process owner of ${processOwnerCmd.topicName} to @user\` to set one.`;
         await say(response);
       } else if (processOwnerCmd.type === 'list') {
         const owners = loadProcessOwners();
         const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
-        const response = entries.length > 0
-          ? '*Process owners:*\n' + entries.map(([topic, info]) => {
-              const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
-              return `• *${topic}* — ${owner}`;
-            }).join('\n')
-          : 'No process owners have been tagged yet.';
+        const response =
+          entries.length > 0
+            ? '*Process owners:*\n' +
+              entries
+                .map(([topic, info]) => {
+                  const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+                  return `• *${topic}* — ${owner}`;
+                })
+                .join('\n')
+            : 'No process owners have been tagged yet.';
         await say(response);
       }
     } catch (err) {
@@ -71,7 +81,9 @@ export const message = async ({ client, context, logger, message, say, setStatus
 
   const ownerCmd = parseOwnerCommand(cleanText);
   if (ownerCmd) {
-    logger.info(`assistant owner cmd: message.user=${user} context.userId=${context.userId} APP_CREATOR_ID=${process.env.APP_CREATOR_ID}`);
+    logger.info(
+      `assistant owner cmd: message.user=${user} context.userId=${context.userId} APP_CREATOR_ID=${process.env.APP_CREATOR_ID}`,
+    );
     try {
       if (ownerCmd.type === 'assign') {
         const result = assignOwner(ownerCmd.docName, ownerCmd.newOwnerId, user);
@@ -81,19 +93,24 @@ export const message = async ({ client, context, logger, message, say, setStatus
         const key = ownerCmd.docName.endsWith('.md') ? ownerCmd.docName : `${ownerCmd.docName}.md`;
         const entry = owners[key];
         const owner = entry?.owner;
-        const response = owner && owner.startsWith('U')
-          ? `The owner of *${key}* is <@${owner}>.`
-          : `*${key}* has no assigned owner yet. Use \`assign owner of ${ownerCmd.docName} to @user\` to set one.`;
+        const response =
+          owner && owner.startsWith('U')
+            ? `The owner of *${key}* is <@${owner}>.`
+            : `*${key}* has no assigned owner yet. Use \`assign owner of ${ownerCmd.docName} to @user\` to set one.`;
         await say(response);
       } else if (ownerCmd.type === 'list') {
         const owners = loadDocOwners();
         const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
-        const response = entries.length > 0
-          ? '*Document owners:*\n' + entries.map(([doc, info]) => {
-              const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
-              return `• *${doc}* — ${owner}`;
-            }).join('\n')
-          : 'No documents have been registered yet.';
+        const response =
+          entries.length > 0
+            ? '*Document owners:*\n' +
+              entries
+                .map(([doc, info]) => {
+                  const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+                  return `• *${doc}* — ${owner}`;
+                })
+                .join('\n')
+            : 'No documents have been registered yet.';
         await say(response);
       }
     } catch (err) {
@@ -127,10 +144,14 @@ export const message = async ({ client, context, logger, message, say, setStatus
           try {
             await notifyStakeholder(client, { ...draft, permalink: draft.filePath }, ownerId);
             logger.info(`assistant message: correction draft sent for "${docSource}"`);
-            await say(`Got it — I've flagged that correction for review. The doc owner will be notified to update *${docSource}*.`);
+            await say(
+              `Got it — I've flagged that correction for review. The doc owner will be notified to update *${docSource}*.`,
+            );
           } catch (notifyErr) {
             logger.error(`assistant message: notifyStakeholder failed: ${notifyErr.message}`);
-            await say(`Got it — I've captured that correction for review. (Note: couldn't notify the doc owner, but the draft has been saved.)`);
+            await say(
+              `Got it — I've captured that correction for review. (Note: couldn't notify the doc owner, but the draft has been saved.)`,
+            );
           }
         } catch (err) {
           logger.error(`assistant message: correction flow failed: ${err.message}`);

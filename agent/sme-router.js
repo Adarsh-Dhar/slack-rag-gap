@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { cosineSimilarity, recencyWeight } from './embeddings.js';
-import { matchProcessOwner, matchDocOwner } from './topic-owner.js';
+import { readJSON, withFileLockSync, writeJSONAtomic } from './store.js';
+import { matchDocOwner, matchProcessOwner } from './topic-owner.js';
 
 const HISTORY_PATH = path.join(process.cwd(), 'sme-history.json');
 
@@ -32,9 +33,11 @@ function fallback(reason) {
  */
 export function recordResolution(embedding, userId) {
   if (!userId) return;
-  const history = loadHistory();
-  history.push({ embedding, userId, timestamp: new Date().toISOString() });
-  fs.writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2));
+  withFileLockSync(HISTORY_PATH, () => {
+    const history = readJSON(HISTORY_PATH, []);
+    history.push({ embedding, userId, timestamp: new Date().toISOString() });
+    writeJSONAtomic(HISTORY_PATH, history);
+  });
 }
 
 // Fixed weight given to a tagged-process-owner match. It's a human saying
@@ -94,7 +97,9 @@ export async function resolveOwner(embedding, questionText) {
   if (docOwnerMatch) {
     votes.push({
       userId: docOwnerMatch.userId,
-      weight: docOwnerMatch.similarity ? docOwnerMatch.similarity * DOC_OWNER_WEIGHT_MULTIPLIER : DOC_OWNER_WEIGHT_MULTIPLIER,
+      weight: docOwnerMatch.similarity
+        ? docOwnerMatch.similarity * DOC_OWNER_WEIGHT_MULTIPLIER
+        : DOC_OWNER_WEIGHT_MULTIPLIER,
       source: docOwnerMatch.reason,
     });
   }

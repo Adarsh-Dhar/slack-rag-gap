@@ -1,10 +1,10 @@
 import 'dotenv/config';
 import { App, LogLevel } from '@slack/bolt';
-import { registerListeners } from './listeners/index.js';
-import { ingestFile } from './ingest.js';
-import { startScheduler } from './scheduler.js';
 import fs from 'fs';
 import path from 'path';
+import { ingestFile } from './ingest.js';
+import { registerListeners } from './listeners/index.js';
+import { startScheduler } from './scheduler.js';
 
 const DOCS_DIR = path.join(process.cwd(), 'docs');
 
@@ -29,14 +29,16 @@ async function checkChroma() {
     } catch (err) {
       if (attempt < MAX_RETRIES) {
         console.warn(
-          `ChromaDB not reachable (attempt ${attempt}/${MAX_RETRIES}): ${err.message}. Retrying in ${RETRY_DELAY_MS / 1000}s...`
+          `ChromaDB not reachable (attempt ${attempt}/${MAX_RETRIES}): ${err.message}. Retrying in ${RETRY_DELAY_MS / 1000}s...`,
         );
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       } else {
         console.error(
-          '\n❌ ChromaDB is not running after ' + MAX_RETRIES + ' attempts. Start it in a separate terminal:\n' +
-          '   npm run chroma\n' +
-          `   (attempted to reach ${url}: ${err.message})\n`
+          '\n❌ ChromaDB is not running after ' +
+            MAX_RETRIES +
+            ' attempts. Start it in a separate terminal:\n' +
+            '   npm run chroma\n' +
+            `   (attempted to reach ${url}: ${err.message})\n`,
         );
         process.exit(1);
       }
@@ -52,7 +54,7 @@ async function checkChroma() {
  */
 async function ingestDocs() {
   if (!fs.existsSync(DOCS_DIR)) return;
-  const files = fs.readdirSync(DOCS_DIR).filter(f => f.toLowerCase().endsWith('.md'));
+  const files = fs.readdirSync(DOCS_DIR).filter((f) => f.toLowerCase().endsWith('.md'));
   if (files.length === 0) return;
 
   // Check if the collection already has data — if so, skip re-ingestion.
@@ -60,11 +62,15 @@ async function ingestDocs() {
   // Run `node ingest.js` manually to force a full re-ingest after doc changes.
   try {
     const chromaUrl = (process.env.CHROMA_URL ?? 'http://localhost:8000').replace('localhost', '127.0.0.1');
-    const collectionsRes = await fetch(`${chromaUrl}/api/v2/tenants/default_tenant/databases/default_database/collections`);
+    const collectionsRes = await fetch(
+      `${chromaUrl}/api/v2/tenants/default_tenant/databases/default_database/collections`,
+    );
     const collections = await collectionsRes.json();
-    const docsCollection = Array.isArray(collections) ? collections.find(c => c.name === 'docs') : null;
+    const docsCollection = Array.isArray(collections) ? collections.find((c) => c.name === 'docs') : null;
     if (docsCollection) {
-      const countRes = await fetch(`${chromaUrl}/api/v2/tenants/default_tenant/databases/default_database/collections/${docsCollection.id}/count`);
+      const countRes = await fetch(
+        `${chromaUrl}/api/v2/tenants/default_tenant/databases/default_database/collections/${docsCollection.id}/count`,
+      );
       const count = await countRes.json();
       if (count > 0) {
         console.log(`ChromaDB already has ${count} chunk(s) — skipping ingestion. Run 'node ingest.js' to re-ingest.`);
@@ -83,7 +89,10 @@ async function ingestDocs() {
       await Promise.race([
         ingestFile(filePath),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`timeout after ${TIMEOUT_MS / 1000}s — embedding API may be rate-limited`)), TIMEOUT_MS)
+          setTimeout(
+            () => reject(new Error(`timeout after ${TIMEOUT_MS / 1000}s — embedding API may be rate-limited`)),
+            TIMEOUT_MS,
+          ),
         ),
       ]);
     } catch (err) {
@@ -109,7 +118,7 @@ process.on('unhandledRejection', (reason) => {
 (async () => {
   try {
     await checkChroma();
-    await ingestDocs();   // wait — app doesn't start until data is ready
+    await ingestDocs(); // wait — app doesn't start until data is ready
     await app.start();
     console.log('⚡️ Bolt app started');
 

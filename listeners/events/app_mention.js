@@ -1,5 +1,5 @@
-import { callLLM } from '../../agent/llm-caller.js';
 import { assignOwner, loadDocOwners } from '../../agent/doc-owners.js';
+import { callLLM } from '../../agent/llm-caller.js';
 import { assignProcessOwner, loadProcessOwners } from '../../agent/process-owners.js';
 
 /**
@@ -57,13 +57,17 @@ export function parseProcessOwnerCommand(text) {
   );
   if (assignMatch) {
     const keywords = assignMatch[3]
-      ? assignMatch[3].split(',').map((k) => k.trim().toLowerCase()).filter(Boolean)
+      ? assignMatch[3]
+          .split(',')
+          .map((k) => k.trim().toLowerCase())
+          .filter(Boolean)
       : undefined;
     return { type: 'assign', topicName: assignMatch[1].trim(), newOwnerId: assignMatch[2], keywords };
   }
 
-  const whoMatch = text.match(/^who\s+owns\s+process\s+(.+)/i)
-    || text.match(/^who\s+is\s+(?:the\s+)?process\s+owner\s+(?:of|for)\s+(.+)/i);
+  const whoMatch =
+    text.match(/^who\s+owns\s+process\s+(.+)/i) ||
+    text.match(/^who\s+is\s+(?:the\s+)?process\s+owner\s+(?:of|for)\s+(.+)/i);
   if (whoMatch) {
     return { type: 'who', topicName: whoMatch[1].trim() };
   }
@@ -96,7 +100,12 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     console.log(`[app_mention] processOwnerCmd=${JSON.stringify(processOwnerCmd)}`);
     if (processOwnerCmd) {
       if (processOwnerCmd.type === 'assign') {
-        const result = assignProcessOwner(processOwnerCmd.topicName, processOwnerCmd.newOwnerId, user, processOwnerCmd.keywords);
+        const result = assignProcessOwner(
+          processOwnerCmd.topicName,
+          processOwnerCmd.newOwnerId,
+          user,
+          processOwnerCmd.keywords,
+        );
         await say({ text: result.message, thread_ts });
         return;
       }
@@ -106,9 +115,10 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         const key = processOwnerCmd.topicName.trim().toLowerCase().replace(/\s+/g, '-');
         const entry = owners[key];
         const owner = entry?.owner;
-        const response = owner && owner.startsWith('U')
-          ? `The process owner for *${key}* is <@${owner}>.`
-          : `*${key}* has no assigned process owner yet. Use \`assign process owner of ${processOwnerCmd.topicName} to @user\` to set one.`;
+        const response =
+          owner && owner.startsWith('U')
+            ? `The process owner for *${key}* is <@${owner}>.`
+            : `*${key}* has no assigned process owner yet. Use \`assign process owner of ${processOwnerCmd.topicName} to @user\` to set one.`;
         await say({ text: response, thread_ts });
         return;
       }
@@ -116,14 +126,16 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       if (processOwnerCmd.type === 'list') {
         const owners = loadProcessOwners();
         const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
-        const response = entries.length > 0
-          ? '*Process owners:*\n' + entries
-              .map(([topic, info]) => {
-                const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
-                return `• *${topic}* — ${owner}`;
-              })
-              .join('\n')
-          : 'No process owners have been tagged yet.';
+        const response =
+          entries.length > 0
+            ? '*Process owners:*\n' +
+              entries
+                .map(([topic, info]) => {
+                  const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+                  return `• *${topic}* — ${owner}`;
+                })
+                .join('\n')
+            : 'No process owners have been tagged yet.';
         await say({ text: response, thread_ts });
         return;
       }
@@ -133,7 +145,9 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     console.log(`[app_mention] cleanText="${cleanText}" ownerCmd=${JSON.stringify(ownerCmd)}`);
 
     if (ownerCmd) {
-      console.log(`[app_mention] owner cmd: event.user=${user} APP_CREATOR_ID=${process.env.APP_CREATOR_ID} match=${user === process.env.APP_CREATOR_ID}`);
+      console.log(
+        `[app_mention] owner cmd: event.user=${user} APP_CREATOR_ID=${process.env.APP_CREATOR_ID} match=${user === process.env.APP_CREATOR_ID}`,
+      );
       if (ownerCmd.type === 'assign') {
         const result = assignOwner(ownerCmd.docName, ownerCmd.newOwnerId, user);
         await say({ text: result.message, thread_ts });
@@ -145,9 +159,10 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         const key = ownerCmd.docName.endsWith('.md') ? ownerCmd.docName : `${ownerCmd.docName}.md`;
         const entry = owners[key];
         const owner = entry?.owner;
-        const response = owner && owner.startsWith('U')
-          ? `The owner of *${key}* is <@${owner}>.`
-          : `*${key}* has no assigned owner yet. Use \`assign owner of ${ownerCmd.docName} to @user\` to set one.`;
+        const response =
+          owner && owner.startsWith('U')
+            ? `The owner of *${key}* is <@${owner}>.`
+            : `*${key}* has no assigned owner yet. Use \`assign owner of ${ownerCmd.docName} to @user\` to set one.`;
         await say({ text: response, thread_ts });
         return;
       }
@@ -155,14 +170,16 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       if (ownerCmd.type === 'list') {
         const owners = loadDocOwners();
         const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
-        const response = entries.length > 0
-          ? '*Document owners:*\n' + entries
-              .map(([doc, info]) => {
-                const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
-                return `• *${doc}* — ${owner}`;
-              })
-              .join('\n')
-          : 'No documents have been registered yet.';
+        const response =
+          entries.length > 0
+            ? '*Document owners:*\n' +
+              entries
+                .map(([doc, info]) => {
+                  const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+                  return `• *${doc}* — ${owner}`;
+                })
+                .join('\n')
+            : 'No documents have been registered yet.';
         await say({ text: response, thread_ts });
         return;
       }

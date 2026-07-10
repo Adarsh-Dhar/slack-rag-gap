@@ -45,7 +45,7 @@ export async function judgeResolution(question, replies) {
 
   const parsed = JSON.parse(res.choices[0].message.content);
   const resolvingReply =
-    parsed.resolved && parsed.resolving_index != null ? replies[parsed.resolving_index] ?? null : null;
+    parsed.resolved && parsed.resolving_index != null ? (replies[parsed.resolving_index] ?? null) : null;
   const resolvingText = resolvingReply?.text ?? null;
   const resolvingUser = resolvingReply?.user ?? null;
 
@@ -87,9 +87,9 @@ export async function judgeFollowUp(question, sources, replies, answerText = nul
         {
           role: 'system',
           content:
-            'You analyze a Slack thread reply to decide whether it indicates the bot\'s answer\n' +
+            "You analyze a Slack thread reply to decide whether it indicates the bot's answer\n" +
             'was sufficient, asks a follow-up question, or explicitly corrects wrong information.\n' +
-            'A correction is ANY reply that disputes, contradicts, or updates specific facts in the bot\'s answer.\n' +
+            "A correction is ANY reply that disputes, contradicts, or updates specific facts in the bot's answer.\n" +
             'Respond only with JSON:\n' +
             '{\n' +
             '  "label": "resolved" | "follow-up-question" | "correction",\n' +

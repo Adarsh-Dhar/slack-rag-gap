@@ -1,6 +1,6 @@
 import fs from 'fs';
-import path from 'path';
 import { OpenAI } from 'openai';
+import path from 'path';
 
 const openai = new OpenAI({
   apiKey: process.env.GITHUB_TOKEN,
@@ -11,7 +11,11 @@ const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');
 const DOCS_DIR = path.join(process.cwd(), 'docs');
 
 function slugify(s) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60);
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 60);
 }
 
 /**
@@ -108,8 +112,7 @@ export async function draftCorrection({ docSource, correctionText, permalink }) 
       {
         role: 'user',
         content:
-          `Existing document (${docSource}):\n${originalContent}\n\n` +
-          `Correction from user:\n${correctionText}`,
+          `Existing document (${docSource}):\n${originalContent}\n\n` + `Correction from user:\n${correctionText}`,
       },
     ],
   });

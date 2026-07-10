@@ -1,12 +1,13 @@
 import 'dotenv/config';
+import { WebClient } from '@slack/web-api';
 import fs from 'fs';
 import path from 'path';
-import { WebClient } from '@slack/web-api';
-import { judgeResolution } from './agent/thread-resolver.js';
 import { draftStub } from './agent/draft-generator.js';
+import { cosineSimilarity, embed, recencyWeight } from './agent/embeddings.js';
 import { notifyStakeholder, pingForExplanation } from './agent/notify-stakeholder.js';
-import { embed, cosineSimilarity, recencyWeight } from './agent/embeddings.js';
-import { resolveOwner, recordResolution } from './agent/sme-router.js';
+import { recordResolution, resolveOwner } from './agent/sme-router.js';
+import { withFileLockSync, writeJSONAtomic } from './agent/store.js';
+import { judgeResolution } from './agent/thread-resolver.js';
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
@@ -38,11 +39,12 @@ function loadResolvedSlugs() {
 }
 
 function markResolved(slug) {
-  const set = loadResolvedSlugs();
-  set.add(slug);
-  fs.writeFileSync(RESOLVED_GAPS_PATH, JSON.stringify([...set], null, 2));
+  withFileLockSync(RESOLVED_GAPS_PATH, () => {
+    const fresh = loadResolvedSlugs();
+    fresh.add(slug);
+    writeJSONAtomic(RESOLVED_GAPS_PATH, [...fresh]);
+  });
 }
-
 
 /**
  * Greedy single-pass clustering: for each question, join the most similar
@@ -79,12 +81,14 @@ async function clusterQuestions(queries) {
     } else {
       clusters.push({
         centroid: embedding,
-        members: [{
-          question: entry.question,
-          timestamp: entry.timestamp,
-          channel: entry.channel,
-          thread_ts: entry.thread_ts,
-        }],
+        members: [
+          {
+            question: entry.question,
+            timestamp: entry.timestamp,
+            channel: entry.channel,
+            thread_ts: entry.thread_ts,
+          },
+        ],
       });
     }
   }
@@ -98,7 +102,10 @@ function rankClusters(clusters) {
       representative: cluster.members[0].question,
       hitCount: cluster.members.length,
       score: cluster.members.reduce((sum, m) => sum + recencyWeight(m.timestamp), 0),
-      lastSeen: cluster.members.map((m) => m.timestamp).sort().at(-1),
+      lastSeen: cluster.members
+        .map((m) => m.timestamp)
+        .sort()
+        .at(-1),
       members: cluster.members,
     }))
     .sort((a, b) => b.score - a.score);
@@ -203,7 +210,7 @@ export async function main() {
   const clusters = await clusterQuestions(queries);
   const ranked = rankClusters(clusters);
 
-  fs.writeFileSync(GAPS_PATH, JSON.stringify(ranked, null, 2));
+  writeJSONAtomic(GAPS_PATH, ranked);
 
   console.log(`\nWrote ${ranked.length} gap cluster(s) to ${GAPS_PATH}\n`);
   console.log('Top gaps:');
@@ -237,8 +244,6 @@ export async function main() {
 
 // Only run main() when this file is executed directly, not when imported by
 // scheduler.js or tests.
-const isMain = process.argv[1] && (
-  process.argv[1].endsWith('/gap-detect.js') ||
-  process.argv[1].endsWith('\\gap-detect.js')
-);
+const isMain =
+  process.argv[1] && (process.argv[1].endsWith('/gap-detect.js') || process.argv[1].endsWith('\\gap-detect.js'));
 if (isMain) main();

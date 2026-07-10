@@ -1,8 +1,8 @@
 import 'dotenv/config';
-import fs from 'fs';
-import path from 'path';
 import { ChromaClient } from 'chromadb';
+import fs from 'fs';
 import { OpenAI } from 'openai';
+import path from 'path';
 
 const openai = new OpenAI({
   apiKey: process.env.GITHUB_TOKEN,
@@ -32,7 +32,10 @@ export function chunkText(text, size = 400) {
   // hold it and prepend it to the next paragraph rather than flushing it
   // with the current chunk. This keeps headings attached to their body text
   // regardless of how many blank lines surround them in the source file.
-  const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
   const chunks = [];
   let current = '';
   let pendingHeading = ''; // held heading waiting for the next body paragraph
@@ -67,9 +70,7 @@ export function chunkText(text, size = 400) {
   if (current.trim()) chunks.push(current.trim());
 
   // Hard-split any chunk that still exceeds size (e.g. a single giant paragraph)
-  return chunks.flatMap((c) =>
-    c.length <= size ? [c] : c.match(new RegExp(`.{1,${size}}`, 'gs')) ?? []
-  );
+  return chunks.flatMap((c) => (c.length <= size ? [c] : (c.match(new RegExp(`.{1,${size}}`, 'gs')) ?? [])));
 }
 
 /**
@@ -148,8 +149,5 @@ async function main() {
 
 // Only run main() when this file is executed directly (node ingest.js),
 // not when imported as a module by app.js or tests.
-const isMain = process.argv[1] && (
-  process.argv[1].endsWith('/ingest.js') ||
-  process.argv[1].endsWith('\\ingest.js')
-);
+const isMain = process.argv[1] && (process.argv[1].endsWith('/ingest.js') || process.argv[1].endsWith('\\ingest.js'));
 if (isMain) main();

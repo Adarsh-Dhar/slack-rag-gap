@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { withFileLockSync, writeFileAtomic } from '../../agent/store.js';
 
 const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');
 
@@ -23,23 +24,41 @@ export const draftEditSubmitCallback = async ({ ack, body, view, client, logger 
 
     const { slug, channel_id, message_ts } = JSON.parse(view.private_metadata);
     const draftPath = path.join(DRAFTS_DIR, `${slug}.md`);
-    if (!fs.existsSync(draftPath)) return; // approved/rejected while the modal was open
 
     const newTitle = view.state.values.title_block.title_input.value;
     const newBody = view.state.values.body_block.body_input.value;
 
-    const original = fs.readFileSync(draftPath, 'utf-8');
-    const frontmatterMatch = original.match(/^---\n([\s\S]*?)\n---\n\n?/);
-    const frontmatterLines = (frontmatterMatch?.[1] || '').split('\n').filter((l) => !l.startsWith('title:'));
-    frontmatterLines.push(`title: ${newTitle}`, `edited_by: ${body.user.id}`, `edited_at: ${new Date().toISOString()}`);
+    const wrote = withFileLockSync(draftPath, () => {
+      // Re-check existence *inside* the lock — Approve/Reject may have
+      // handled this draft between our initial dispatch and acquiring the
+      // lock, and checking outside the lock would leave a race window.
+      if (!fs.existsSync(draftPath)) return false;
 
-    const rewritten = `---\n${frontmatterLines.join('\n')}\n---\n\n${newBody}\n`;
-    fs.writeFileSync(draftPath, rewritten);
+      const original = fs.readFileSync(draftPath, 'utf-8');
+      const frontmatterMatch = original.match(/^---\n([\s\S]*?)\n---\n\n?/);
+      const frontmatterLines = (frontmatterMatch?.[1] || '').split('\n').filter((l) => !l.startsWith('title:'));
+      frontmatterLines.push(
+        `title: ${newTitle}`,
+        `edited_by: ${body.user.id}`,
+        `edited_at: ${new Date().toISOString()}`,
+      );
+
+      const rewritten = `---\n${frontmatterLines.join('\n')}\n---\n\n${newBody}\n`;
+      writeFileAtomic(draftPath, rewritten);
+      return true;
+    });
+
+    if (!wrote) return; // approved/rejected while the modal was open
 
     // Refresh the review message so the reviewer (and anyone else in the
     // DM) sees the edited title and knows it was hand-edited, while
     // leaving the original Approve/Edit/Reject actions block untouched.
-    const history = await client.conversations.history({ channel: channel_id, latest: message_ts, inclusive: true, limit: 1 });
+    const history = await client.conversations.history({
+      channel: channel_id,
+      latest: message_ts,
+      inclusive: true,
+      limit: 1,
+    });
     const existingBlocks = history.messages?.[0]?.blocks || [];
     const actionsBlock = existingBlocks.find((b) => b.block_id === 'draft_review');
     const contextBlock = existingBlocks.find((b) => b.type === 'context');
@@ -51,7 +70,10 @@ export const draftEditSubmitCallback = async ({ ack, body, view, client, logger 
       blocks: [
         {
           type: 'section',
-          text: { type: 'mrkdwn', text: `*New doc draft ready for review*\n*${newTitle}*\n_Edited by <@${body.user.id}>_` },
+          text: {
+            type: 'mrkdwn',
+            text: `*New doc draft ready for review*\n*${newTitle}*\n_Edited by <@${body.user.id}>_`,
+          },
         },
         ...(contextBlock ? [contextBlock] : []),
         ...(actionsBlock ? [actionsBlock] : []),

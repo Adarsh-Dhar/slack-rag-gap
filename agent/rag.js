@@ -1,7 +1,7 @@
-import fs from 'fs';
-import path from 'path';
 import { ChromaClient } from 'chromadb';
+import fs from 'fs';
 import { OpenAI } from 'openai';
+import path from 'path';
 import { updateUsageLedger } from './usage-ledger.js';
 
 const openai = new OpenAI({
@@ -151,7 +151,11 @@ export function getLastAnswerForThread(channel, thread_ts) {
   // Walk backwards — find the most recent retrieve + answer pair for this thread
   for (let i = lines.length - 1; i >= 0; i--) {
     let entry;
-    try { entry = JSON.parse(lines[i]); } catch { continue; }
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch {
+      continue;
+    }
     if (entry.channel !== channel || entry.thread_ts !== thread_ts) continue;
 
     if (!answerEntry && entry.type === 'answer') {

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { withFileLockSync, writeJSONAtomic } from './store.js';
 
 const DOC_OWNERS_PATH = path.join(process.cwd(), 'doc-owners.json');
 
@@ -20,7 +21,7 @@ export function loadDocOwners() {
  * Writes the owners object to doc-owners.json (pretty-printed).
  */
 export function saveDocOwners(owners) {
-  fs.writeFileSync(DOC_OWNERS_PATH, JSON.stringify(owners, null, 2));
+  writeJSONAtomic(DOC_OWNERS_PATH, owners);
 }
 
 /**
@@ -81,27 +82,30 @@ export function canChangeOwnership(docName, requesterId) {
  */
 export function assignOwner(docName, newOwnerId, requesterId) {
   const key = resolveDocKey(docName);
-  const check = canChangeOwnership(key, requesterId);
-  if (!check.allowed) {
-    return { success: false, message: check.reason };
-  }
 
-  const owners = loadDocOwners();
-  const previousOwner = owners[key]?.owner ?? null;
+  return withFileLockSync(DOC_OWNERS_PATH, () => {
+    const check = canChangeOwnership(key, requesterId);
+    if (!check.allowed) {
+      return { success: false, message: check.reason };
+    }
 
-  owners[key] = {
-    ...owners[key],
-    owner: newOwnerId,
-    // Seed topic_tags from the filename if this is a brand-new entry
-    topic_tags: owners[key]?.topic_tags ?? key.replace(/\.md$/, '').split(/[-_]/).filter(Boolean),
-  };
+    const owners = loadDocOwners();
+    const previousOwner = owners[key]?.owner ?? null;
 
-  saveDocOwners(owners);
+    owners[key] = {
+      ...owners[key],
+      owner: newOwnerId,
+      // Seed topic_tags from the filename if this is a brand-new entry
+      topic_tags: owners[key]?.topic_tags ?? key.replace(/\.md$/, '').split(/[-_]/).filter(Boolean),
+    };
 
-  const action = previousOwner && previousOwner.startsWith('U') ? 'transferred' : 'assigned';
-  return {
-    success: true,
-    message: `Ownership of *${key}* ${action} successfully.`,
-    previousOwner,
-  };
+    saveDocOwners(owners);
+
+    const action = previousOwner && previousOwner.startsWith('U') ? 'transferred' : 'assigned';
+    return {
+      success: true,
+      message: `Ownership of *${key}* ${action} successfully.`,
+      previousOwner,
+    };
+  });
 }

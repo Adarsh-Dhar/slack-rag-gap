@@ -67,8 +67,6 @@ export function startScheduler() {
 
 // Only auto-start when this file is executed directly (`node scheduler.js`),
 // not when imported by app.js or tests.
-const isMain = process.argv[1] && (
-  process.argv[1].endsWith('/scheduler.js') ||
-  process.argv[1].endsWith('\\scheduler.js')
-);
+const isMain =
+  process.argv[1] && (process.argv[1].endsWith('/scheduler.js') || process.argv[1].endsWith('\\scheduler.js'));
 if (isMain) startScheduler();

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { readJSON, withFileLockSync, writeJSONAtomic } from '../../agent/store.js';
 import { ingestText } from '../../ingest.js';
 
 const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');
@@ -24,22 +25,21 @@ const DOC_OWNERS_PATH = path.join(process.cwd(), 'doc-owners.json');
  * @param {string} approverId
  */
 function recordAuthorAsOwner(slug, title, approverId) {
-  let owners = {};
-  if (fs.existsSync(DOC_OWNERS_PATH)) {
-    owners = JSON.parse(fs.readFileSync(DOC_OWNERS_PATH, 'utf-8'));
-  }
+  withFileLockSync(DOC_OWNERS_PATH, () => {
+    const owners = readJSON(DOC_OWNERS_PATH, {});
 
-  const topicTags = (title || slug)
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
+    const topicTags = (title || slug)
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean);
 
-  owners[`${slug}.md`] = {
-    owner: approverId,
-    topic_tags: topicTags,
-  };
+    owners[`${slug}.md`] = {
+      owner: approverId,
+      topic_tags: topicTags,
+    };
 
-  fs.writeFileSync(DOC_OWNERS_PATH, JSON.stringify(owners, null, 2));
+    writeJSONAtomic(DOC_OWNERS_PATH, owners);
+  });
 }
 
 /**
@@ -63,28 +63,51 @@ export const draftApprovalCallback = async ({ ack, body, client, logger }) => {
     const draftPath = path.join(DRAFTS_DIR, `${slug}.md`);
 
     if (!fs.existsSync(draftPath)) {
-      await client.chat.postMessage({ channel: channel_id, thread_ts: message_ts, text: 'Draft not found — it may have already been handled.' });
+      await client.chat.postMessage({
+        channel: channel_id,
+        thread_ts: message_ts,
+        text: 'Draft not found — it may have already been handled.',
+      });
       return;
     }
 
     if (action.action_id === 'draft_approve') {
-      const text = fs.readFileSync(draftPath, 'utf-8');
-      const frontmatterMatch = text.match(/^---\n([\s\S]*?)\n---\n\n?/);
-      const body_ = text.replace(/^---\n[\s\S]*?\n---\n\n?/, ''); // strip frontmatter before ingesting
-      const titleLine = frontmatterMatch?.[1].match(/^title:\s*(.+)$/m);
-      const title = titleLine?.[1].trim();
+      const claimed = withFileLockSync(draftPath, () => {
+        // Re-check inside the lock — an Edit submission or a duplicate
+        // button click may have already consumed this draft.
+        if (!fs.existsSync(draftPath)) return null;
 
-      // Correction drafts carry an `edit_of: <docSource>` frontmatter field
-      // (see draftCorrection() in agent/draft-generator.js). Those must
-      // overwrite the doc they're correcting, not land under a new slug —
-      // otherwise the stale/wrong original stays live and the "correction"
-      // just becomes an orphaned second document.
-      const editOfLine = frontmatterMatch?.[1].match(/^edit_of:\s*(.+)$/m);
-      const editOf = editOfLine?.[1].trim();
-      const targetFileName = editOf || `${slug}.md`;
+        const text = fs.readFileSync(draftPath, 'utf-8');
+        const frontmatterMatch = text.match(/^---\n([\s\S]*?)\n---\n\n?/);
+        const body_ = text.replace(/^---\n[\s\S]*?\n---\n\n?/, ''); // strip frontmatter before ingesting
+        const titleLine = frontmatterMatch?.[1].match(/^title:\s*(.+)$/m);
+        const title = titleLine?.[1].trim();
 
-      fs.mkdirSync(DOCS_DIR, { recursive: true });
-      fs.renameSync(draftPath, path.join(DOCS_DIR, targetFileName));
+        // Correction drafts carry an `edit_of: <docSource>` frontmatter field
+        // (see draftCorrection() in agent/draft-generator.js). Those must
+        // overwrite the doc they're correcting, not land under a new slug —
+        // otherwise the stale/wrong original stays live and the "correction"
+        // just becomes an orphaned second document.
+        const editOfLine = frontmatterMatch?.[1].match(/^edit_of:\s*(.+)$/m);
+        const editOf = editOfLine?.[1].trim();
+        const targetFileName = editOf || `${slug}.md`;
+
+        fs.mkdirSync(DOCS_DIR, { recursive: true });
+        fs.renameSync(draftPath, path.join(DOCS_DIR, targetFileName));
+
+        return { title, editOf, targetFileName, body_ };
+      });
+
+      if (!claimed) {
+        await client.chat.postMessage({
+          channel: channel_id,
+          thread_ts: message_ts,
+          text: 'Draft not found — it may have already been handled.',
+        });
+        return;
+      }
+
+      const { title, editOf, targetFileName, body_ } = claimed;
       await ingestText(targetFileName, body_);
       recordAuthorAsOwner(editOf ? editOf.replace(/\.md$/, '') : slug, title, body.user?.id);
 
@@ -92,12 +115,34 @@ export const draftApprovalCallback = async ({ ack, body, client, logger }) => {
         channel: channel_id,
         ts: message_ts,
         text: 'Draft approved and added to the knowledge base.',
-        blocks: [{ type: 'section', text: { type: 'mrkdwn', text: editOf
-          ? `:white_check_mark: Approved — *${targetFileName}* was updated in the knowledge base.`
-          : `:white_check_mark: Approved — *${slug}* is now live in the knowledge base.` } }],
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: editOf
+                ? `:white_check_mark: Approved — *${targetFileName}* was updated in the knowledge base.`
+                : `:white_check_mark: Approved — *${slug}* is now live in the knowledge base.`,
+            },
+          },
+        ],
       });
     } else {
-      fs.unlinkSync(draftPath);
+      const removed = withFileLockSync(draftPath, () => {
+        if (!fs.existsSync(draftPath)) return false;
+        fs.unlinkSync(draftPath);
+        return true;
+      });
+
+      if (!removed) {
+        await client.chat.postMessage({
+          channel: channel_id,
+          thread_ts: message_ts,
+          text: 'Draft not found — it may have already been handled.',
+        });
+        return;
+      }
+
       await client.chat.update({
         channel: channel_id,
         ts: message_ts,

@@ -1,13 +1,12 @@
 import 'dotenv/config';
+import { WebClient } from '@slack/web-api';
 import fs from 'fs';
 import path from 'path';
-import { WebClient } from '@slack/web-api';
 import { notifyStakeholder } from './agent/notify-stakeholder.js';
+import { readJSON, withFileLockSync, writeJSONAtomic } from './agent/store.js';
 
 const docOwnersPath = path.join(process.cwd(), 'doc-owners.json');
-const docOwners = fs.existsSync(docOwnersPath)
-  ? JSON.parse(fs.readFileSync(docOwnersPath, 'utf-8'))
-  : {};
+const docOwners = fs.existsSync(docOwnersPath) ? JSON.parse(fs.readFileSync(docOwnersPath, 'utf-8')) : {};
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
@@ -41,7 +40,11 @@ export function parseThreshold(envValue) {
  * @returns {string}
  */
 export function slugify(s) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60);
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 60);
 }
 
 /**
@@ -89,16 +92,6 @@ export async function main() {
     process.exit(0);
   }
 
-  // Load staleness-notified.json; treat as {} if absent
-  let notified = {};
-  if (fs.existsSync(NOTIFIED_PATH)) {
-    try {
-      notified = JSON.parse(fs.readFileSync(NOTIFIED_PATH, 'utf-8'));
-    } catch {
-      notified = {};
-    }
-  }
-
   const now = Date.now();
 
   for (const [docName, entry] of Object.entries(usage)) {
@@ -109,12 +102,6 @@ export async function main() {
     // Skip docs below or at threshold
     if (stalenessScore <= STALENESS_THRESHOLD) continue;
 
-    // Skip docs within cooldown window
-    if (isInCooldown(notified[docName], now)) {
-      console.log(`Skipping "${docName}" — within 7-day cooldown window`);
-      continue;
-    }
-
     // Look up doc owner; warn and skip if not found
     if (!docOwners[docName] || docOwners[docName].owner === undefined) {
       console.warn(`No owner found for "${docName}" in doc-owners.json — skipping`);
@@ -122,6 +109,26 @@ export async function main() {
     }
 
     const ownerId = docOwners[docName].owner;
+
+    // Atomically check-and-reserve this doc: re-reads staleness-notified.json
+    // fresh under the lock (rather than trusting the `notified` snapshot
+    // loaded at the top of main()) so two concurrent staleness-detect runs
+    // — two overlapping manual runs, or two worker replicas — can't both
+    // decide the doc is out of its cooldown window and both fire a DM.
+    // Whichever one wins the lock first reserves it; the other sees the
+    // fresh write and backs off.
+    const reserved = withFileLockSync(NOTIFIED_PATH, () => {
+      const fresh = readJSON(NOTIFIED_PATH, {});
+      if (isInCooldown(fresh[docName], now)) return false;
+      fresh[docName] = new Date().toISOString();
+      writeJSONAtomic(NOTIFIED_PATH, fresh);
+      return true;
+    });
+
+    if (!reserved) {
+      console.log(`Skipping "${docName}" — within 7-day cooldown window`);
+      continue;
+    }
 
     // Build the staleness draft object
     const draft = {
@@ -137,25 +144,23 @@ export async function main() {
       await notifyStakeholder(slack, draft, ownerId);
     } catch (err) {
       console.error(`Error notifying owner of "${docName}":`, err.message ?? err);
+      // The DM never actually landed — release the reservation so this doc
+      // is eligible again next cycle instead of silently staying "notified"
+      // for a full 7-day cooldown it never earned.
+      withFileLockSync(NOTIFIED_PATH, () => {
+        const fresh = readJSON(NOTIFIED_PATH, {});
+        delete fresh[docName];
+        writeJSONAtomic(NOTIFIED_PATH, fresh);
+      });
       continue;
     }
-
-    // Update staleness-notified.json atomically (write tmp then rename)
-    const updated = { ...notified, [docName]: new Date().toISOString() };
-    const tmpPath = `${NOTIFIED_PATH}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(updated, null, 2));
-    fs.renameSync(tmpPath, NOTIFIED_PATH);
-
-    // Update in-memory state for subsequent iterations
-    notified = updated;
 
     console.log(`Notified owner "${ownerId}" about stale doc "${docName}" (score: ${stalenessScore.toFixed(2)})`);
   }
 }
 
 // Only run main() when this file is executed directly, not when imported by tests.
-const isMain = process.argv[1] && (
-  process.argv[1].endsWith('/staleness-detect.js') ||
-  process.argv[1].endsWith('\\staleness-detect.js')
-);
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('/staleness-detect.js') || process.argv[1].endsWith('\\staleness-detect.js'));
 if (isMain) main();

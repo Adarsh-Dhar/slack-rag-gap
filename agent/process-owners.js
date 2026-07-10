@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { withFileLockSync, writeJSONAtomic } from './store.js';
 
 const PROCESS_OWNERS_PATH = path.join(process.cwd(), 'process-owners.json');
 
@@ -23,7 +24,7 @@ export function loadProcessOwners() {
  * Writes the owners object to process-owners.json (pretty-printed).
  */
 export function saveProcessOwners(owners) {
-  fs.writeFileSync(PROCESS_OWNERS_PATH, JSON.stringify(owners, null, 2));
+  writeJSONAtomic(PROCESS_OWNERS_PATH, owners);
 }
 
 /**
@@ -43,7 +44,10 @@ function resolveTopicKey(topic) {
  * match on even before anyone hand-tunes the keyword list.
  */
 function defaultKeywords(topic) {
-  const words = topic.toLowerCase().split(/[\s\-_]+/).filter(Boolean);
+  const words = topic
+    .toLowerCase()
+    .split(/[\s\-_]+/)
+    .filter(Boolean);
   const phrase = topic.trim().toLowerCase();
   return [...new Set([phrase, ...words])];
 }
@@ -101,28 +105,30 @@ export function canChangeProcessOwnership(topicKey, requesterId) {
  */
 export function assignProcessOwner(topicName, newOwnerId, requesterId, newKeywords) {
   const key = resolveTopicKey(topicName);
-  const check = canChangeProcessOwnership(key, requesterId);
-  if (!check.allowed) {
-    return { success: false, message: check.reason };
-  }
 
-  const owners = loadProcessOwners();
-  const previousOwner = owners[key]?.owner ?? null;
+  return withFileLockSync(PROCESS_OWNERS_PATH, () => {
+    const check = canChangeProcessOwnership(key, requesterId);
+    if (!check.allowed) {
+      return { success: false, message: check.reason };
+    }
 
-  owners[key] = {
-    ...owners[key],
-    owner: newOwnerId,
-    keywords: newKeywords && newKeywords.length > 0
-      ? newKeywords
-      : owners[key]?.keywords ?? defaultKeywords(topicName),
-  };
+    const owners = loadProcessOwners();
+    const previousOwner = owners[key]?.owner ?? null;
 
-  saveProcessOwners(owners);
+    owners[key] = {
+      ...owners[key],
+      owner: newOwnerId,
+      keywords:
+        newKeywords && newKeywords.length > 0 ? newKeywords : (owners[key]?.keywords ?? defaultKeywords(topicName)),
+    };
 
-  const action = previousOwner && previousOwner.startsWith('U') ? 'transferred' : 'assigned';
-  return {
-    success: true,
-    message: `Process ownership of *${key}* ${action} successfully. I'll route questions matching its keywords (${owners[key].keywords.join(', ')}) to <@${newOwnerId}>.`,
-    previousOwner,
-  };
+    saveProcessOwners(owners);
+
+    const action = previousOwner && previousOwner.startsWith('U') ? 'transferred' : 'assigned';
+    return {
+      success: true,
+      message: `Process ownership of *${key}* ${action} successfully. I'll route questions matching its keywords (${owners[key].keywords.join(', ')}) to <@${newOwnerId}>.`,
+      previousOwner,
+    };
+  });
 }
