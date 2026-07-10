@@ -8,6 +8,7 @@ resolved-gaps.json
 sme-history.json
 process-owners.json
 doc-owners.json
+failed-drafts.json
 .kiro
 *.lock
 *.tmp

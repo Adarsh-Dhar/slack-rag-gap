@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { isRetryableLLMError, withRetry } from './with-retry.js';
 import { getOpenAI } from './openai-client.js';
+import { isRetryableLLMError, withRetry } from './with-retry.js';
+
 const CHAT_MODEL = 'openai/gpt-4o-mini';
 const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');
 const DOCS_DIR = path.join(process.cwd(), 'docs');

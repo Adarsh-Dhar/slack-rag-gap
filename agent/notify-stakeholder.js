@@ -1,3 +1,4 @@
+import log from './logger.js';
 import { isRetryableSlackError, withRetry } from './with-retry.js';
 
 /**
@@ -14,7 +15,10 @@ import { isRetryableSlackError, withRetry } from './with-retry.js';
 export async function notifyStakeholder(client, draft, userId, reason) {
   const targetUserId = userId || process.env.STAKEHOLDER_USER_ID;
   if (!targetUserId) {
-    console.warn('No SME resolved and STAKEHOLDER_USER_ID not set — skipping draft notification.');
+    log.warn(
+      { module: 'notify-stakeholder', fn: 'notifyStakeholder' },
+      'No SME resolved and STAKEHOLDER_USER_ID not set — skipping draft notification',
+    );
     return;
   }
 
@@ -110,7 +114,10 @@ export async function notifyStakeholder(client, draft, userId, reason) {
 export async function pingForExplanation(client, gap, userId, reason) {
   const targetUserId = userId || process.env.STAKEHOLDER_USER_ID;
   if (!targetUserId) {
-    console.warn('No SME resolved and STAKEHOLDER_USER_ID not set — skipping explanation ping.');
+    log.warn(
+      { module: 'notify-stakeholder', fn: 'pingForExplanation' },
+      'No SME resolved and STAKEHOLDER_USER_ID not set — skipping explanation ping',
+    );
     return;
   }
 
@@ -125,7 +132,10 @@ export async function pingForExplanation(client, gap, userId, reason) {
       label: 'pingForExplanation in-thread postMessage',
     });
   } catch (err) {
-    console.error(`pingForExplanation: failed to post in-thread ping: ${err.message}`);
+    log.error(
+      { module: 'notify-stakeholder', fn: 'pingForExplanation', err: err.message },
+      'Failed to post in-thread ping',
+    );
   }
 
   // 2. DM the same ask directly, so it's not easy to miss.
@@ -161,6 +171,9 @@ export async function pingForExplanation(client, gap, userId, reason) {
       { isRetryable: isRetryableSlackError, label: 'pingForExplanation DM postMessage' },
     );
   } catch (err) {
-    console.error(`pingForExplanation: failed to DM ${targetUserId}: ${err.message}`);
+    log.error(
+      { module: 'notify-stakeholder', fn: 'pingForExplanation', targetUserId, err: err.message },
+      'Failed to DM stakeholder',
+    );
   }
 }

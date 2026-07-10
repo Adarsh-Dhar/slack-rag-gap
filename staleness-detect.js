@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { WebClient } from '@slack/web-api';
 import fs from 'fs';
 import path from 'path';
+import log from './agent/logger.js';
 import { notifyStakeholder } from './agent/notify-stakeholder.js';
 import { readJSON, withFileLockSync, writeJSONAtomic } from './agent/store.js';
 
@@ -25,7 +26,7 @@ export const COOLDOWN_MS = 168 * 60 * 60 * 1000; // 7 days in milliseconds
 export function parseThreshold(envValue) {
   const parsed = parseFloat(envValue);
   if (!Number.isFinite(parsed)) {
-    console.log(`STALENESS_THRESHOLD not set or invalid ("${envValue}") — using default 0.3`);
+    log.info({ module: 'staleness-detect', envValue }, 'STALENESS_THRESHOLD not set or invalid — using default 0.3');
     return 0.3;
   }
   return parsed;
@@ -75,7 +76,7 @@ export async function main() {
 
   // Load doc-usage.json; exit cleanly if absent or empty
   if (!fs.existsSync(USAGE_PATH)) {
-    console.log('no usage data');
+    log.info({ module: 'staleness-detect' }, 'No usage data file found');
     process.exit(0);
   }
 
@@ -83,12 +84,12 @@ export async function main() {
   try {
     usage = JSON.parse(fs.readFileSync(USAGE_PATH, 'utf-8'));
   } catch {
-    console.log('no usage data');
+    log.info({ module: 'staleness-detect' }, 'Could not parse usage data');
     process.exit(0);
   }
 
   if (!usage || Object.keys(usage).length === 0) {
-    console.log('no usage data');
+    log.info({ module: 'staleness-detect' }, 'Usage data is empty');
     process.exit(0);
   }
 
@@ -104,7 +105,7 @@ export async function main() {
 
     // Look up doc owner; warn and skip if not found
     if (!docOwners[docName] || docOwners[docName].owner === undefined) {
-      console.warn(`No owner found for "${docName}" in doc-owners.json — skipping`);
+      log.warn({ module: 'staleness-detect', doc: docName }, 'No owner found in doc-owners.json — skipping');
       continue;
     }
 
@@ -126,7 +127,7 @@ export async function main() {
     });
 
     if (!reserved) {
-      console.log(`Skipping "${docName}" — within 7-day cooldown window`);
+      log.info({ module: 'staleness-detect', doc: docName }, 'Within 7-day cooldown — skipping');
       continue;
     }
 
@@ -143,7 +144,10 @@ export async function main() {
     try {
       await notifyStakeholder(slack, draft, ownerId);
     } catch (err) {
-      console.error(`Error notifying owner of "${docName}":`, err.message ?? err);
+      log.error(
+        { module: 'staleness-detect', doc: docName, err: err.message ?? err },
+        'Failed to notify owner of stale doc',
+      );
       // The DM never actually landed — release the reservation so this doc
       // is eligible again next cycle instead of silently staying "notified"
       // for a full 7-day cooldown it never earned.
@@ -155,7 +159,10 @@ export async function main() {
       continue;
     }
 
-    console.log(`Notified owner "${ownerId}" about stale doc "${docName}" (score: ${stalenessScore.toFixed(2)})`);
+    log.info(
+      { module: 'staleness-detect', doc: docName, ownerId, score: Number(stalenessScore.toFixed(2)) },
+      'Notified owner about stale doc',
+    );
   }
 }
 

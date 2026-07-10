@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import { resetRunSummary, runSummary } from './agent/failure-counter.js';
+import log from './agent/logger.js';
 import { main as runGapDetect } from './gap-detect.js';
 import { main as runStalenessDetect } from './staleness-detect.js';
 
@@ -20,20 +22,22 @@ const state = {
 async function runJob(name) {
   const job = state[name];
   if (job.running) {
-    console.log(`[scheduler] ${name} is still running from a previous tick — skipping this cycle`);
+    log.info({ module: 'scheduler', job: name }, 'Job still running from previous tick — skipping');
     return;
   }
 
   job.running = true;
   const startedAt = Date.now();
-  console.log(`[scheduler] ${name} starting`);
+  resetRunSummary();
+  log.info({ module: 'scheduler', job: name }, 'Job starting');
   try {
     await job.fn();
-    console.log(`[scheduler] ${name} finished in ${Date.now() - startedAt}ms`);
+    const summary = runSummary();
+    log.info({ module: 'scheduler', job: name, durationMs: Date.now() - startedAt, ...summary }, 'Job finished');
   } catch (err) {
     // A failure in one job must never take down the scheduler or block the
     // other job — log and move on, next tick will try again.
-    console.error(`[scheduler] ${name} failed: ${err.stack ?? err}`);
+    log.error({ module: 'scheduler', job: name, err: err.stack ?? err }, 'Job failed');
   } finally {
     job.running = false;
   }
@@ -54,14 +58,14 @@ async function tick() {
  * @returns {() => void} stop - call to cancel the schedule (e.g. on shutdown)
  */
 export function startScheduler() {
-  console.log(`[scheduler] starting — gap-detect and staleness-detect will run every ${INTERVAL_MS / 1000}s`);
+  log.info({ module: 'scheduler', intervalMs: INTERVAL_MS }, 'Scheduler starting');
 
   tick();
   const handle = setInterval(tick, INTERVAL_MS);
 
   return function stop() {
     clearInterval(handle);
-    console.log('[scheduler] stopped');
+    log.info({ module: 'scheduler' }, 'Scheduler stopped');
   };
 }
 

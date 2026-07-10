@@ -4,15 +4,19 @@ import fs from 'fs';
 import path from 'path';
 import { draftStub } from './agent/draft-generator.js';
 import { cosineSimilarity, embed, recencyWeight } from './agent/embeddings.js';
+import { recordFailure } from './agent/failure-counter.js';
+import log from './agent/logger.js';
 import { notifyStakeholder, pingForExplanation } from './agent/notify-stakeholder.js';
 import { recordResolution, resolveOwner } from './agent/sme-router.js';
-import { withFileLockSync, writeJSONAtomic } from './agent/store.js';
+import { readJSON, withFileLockSync, writeJSONAtomic } from './agent/store.js';
 import { judgeResolution } from './agent/thread-resolver.js';
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 const LOG_PATH = path.join(process.cwd(), 'query-log.jsonl');
 const GAPS_PATH = path.join(process.cwd(), 'gaps.json');
+const FAILED_DRAFTS_PATH = path.join(process.cwd(), 'failed-drafts.json');
+const MAX_CONSECUTIVE_FAILURES = parseInt(process.env.MAX_CONSECUTIVE_FAILURES) || 5;
 
 // Only chase drafts for clusters that look like real, recurring gaps —
 // a single one-off odd question isn't worth bothering a stakeholder over.
@@ -133,7 +137,10 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
       messages = result.messages;
     } catch (error) {
       if (error.data?.error === 'missing_scope') {
-        console.error(`  conversations.replies failed with missing_scope, trying conversations.history as fallback`);
+        log.warn(
+          { module: 'gap-detect', channel, thread_ts, err: error.data?.error },
+          'conversations.replies missing_scope — falling back to conversations.history',
+        );
         const historyResult = await slack.conversations.history({
           channel,
           oldest: thread_ts,
@@ -179,7 +186,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
 
     // Skip drafts whose slug matches an already-resolved gap
     if (resolvedSlugs.has(draft.slug)) {
-      console.log(`  Skipping already-resolved gap: ${draft.slug}`);
+      log.info({ module: 'gap-detect', slug: draft.slug }, 'Skipping already-resolved gap');
       return;
     }
 
@@ -189,10 +196,22 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
 
     recordResolution(topicEmbedding, resolvingUser);
   } catch (error) {
-    console.error(`  Error processing cluster "${cluster.representative}":`, error.message);
+    log.error(
+      { module: 'gap-detect', cluster: cluster.representative, err: error.message, channel, thread_ts },
+      'Error processing cluster',
+    );
+    // Dead-letter: record the failure so we can distinguish transient blips
+    // from persistent misconfigurations (e.g. GITHUB_TOKEN wrong for days).
+    recordFailure(FAILED_DRAFTS_PATH, {
+      cluster: cluster.representative,
+      error: error.message,
+      channel,
+      thread_ts,
+      missingScope: error.data?.error === 'missing_scope',
+      lastAttemptAt: new Date().toISOString(),
+    });
     if (error.data?.error === 'missing_scope') {
-      console.error(`  Missing scope details:`, error.data);
-      console.error(`  Channel: ${channel}, Thread: ${thread_ts}`);
+      log.error({ module: 'gap-detect', errorData: error.data, channel, thread_ts }, 'Missing scope details');
     }
   }
 }
@@ -201,24 +220,31 @@ export async function main() {
   const queries = loadUnansweredQueries();
 
   if (queries.length === 0) {
-    console.log('No unanswered queries found in query-log.jsonl — nothing to cluster yet.');
+    log.info({ module: 'gap-detect' }, 'No unanswered queries in query-log.jsonl');
     return;
   }
 
-  console.log(`Clustering ${queries.length} unanswered quer${queries.length === 1 ? 'y' : 'ies'}...`);
+  log.info({ module: 'gap-detect', queryCount: queries.length }, 'Clustering unanswered queries');
 
   const clusters = await clusterQuestions(queries);
   const ranked = rankClusters(clusters);
 
   writeJSONAtomic(GAPS_PATH, ranked);
 
-  console.log(`\nWrote ${ranked.length} gap cluster(s) to ${GAPS_PATH}\n`);
-  console.log('Top gaps:');
+  log.info({ module: 'gap-detect', clusterCount: ranked.length, path: GAPS_PATH }, 'Wrote gap clusters');
   for (const gap of ranked.slice(0, 10)) {
-    console.log(`  [${gap.hitCount}x, score=${gap.score.toFixed(2)}] ${gap.representative}`);
+    log.info(
+      {
+        module: 'gap-detect',
+        hitCount: gap.hitCount,
+        score: Number(gap.score.toFixed(2)),
+        cluster: gap.representative,
+      },
+      'Top gap',
+    );
   }
 
-  console.log('\nChecking top gaps for resolved threads worth drafting...');
+  log.info({ module: 'gap-detect' }, 'Checking top gaps for resolved threads worth drafting');
   const resolvedSlugs = loadResolvedSlugs();
 
   // Single auth.test() call — reused by every tryDraftFromCluster invocation
@@ -226,9 +252,9 @@ export async function main() {
   try {
     const authInfo = await slack.auth.test();
     botUserId = authInfo.user_id;
-    console.log(`  Bot user: ${authInfo.user}, Team: ${authInfo.team}`);
+    log.info({ module: 'gap-detect', user: authInfo.user, team: authInfo.team }, 'Bot auth verified');
   } catch (error) {
-    console.error(`  auth.test() failed: ${error.message} — skipping draft checks`);
+    log.error({ module: 'gap-detect', err: error.message }, 'auth.test() failed — skipping draft checks');
     return;
   }
 
@@ -237,7 +263,15 @@ export async function main() {
     try {
       await tryDraftFromCluster(cluster, resolvedSlugs, botUserId);
     } catch (e) {
-      console.error(`  Failed to process cluster "${cluster.representative}": ${e}`);
+      log.error(
+        { module: 'gap-detect', cluster: cluster.representative, err: String(e) },
+        'Outer cluster processing failure',
+      );
+      recordFailure(FAILED_DRAFTS_PATH, {
+        cluster: cluster.representative,
+        error: String(e),
+        lastAttemptAt: new Date().toISOString(),
+      });
     }
   }
 }

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { ChromaClient } from 'chromadb';
 import fs from 'fs';
 import path from 'path';
+import log from './agent/logger.js';
 import { getOpenAI } from './agent/openai-client.js';
 
 const chromaUrl = (process.env.CHROMA_URL ?? 'http://127.0.0.1:8000').replace('localhost', '127.0.0.1');
@@ -90,7 +91,10 @@ export async function ingestText(fileName, text) {
     try {
       await collection.delete({ where: { source: fileName } });
     } catch (error) {
-      console.warn(`No existing chunks to clear for ${fileName} (or delete failed): ${error.message}`);
+      log.warn(
+        { module: 'ingest', file: fileName, err: error.message },
+        'Could not clear existing chunks before re-ingest',
+      );
     }
 
     for (const [i, chunk] of chunks.entries()) {
@@ -104,7 +108,7 @@ export async function ingestText(fileName, text) {
     }
     return chunks.length;
   } catch (error) {
-    console.error(`ChromaDB error during ingestion of ${fileName}:`, error.message);
+    log.error({ module: 'ingest', file: fileName, err: error.message }, 'ChromaDB error during ingestion');
     throw error;
   }
 }
@@ -113,33 +117,33 @@ export async function ingestFile(filePath) {
   const text = fs.readFileSync(filePath, 'utf-8');
   const fileName = path.basename(filePath);
   const count = await ingestText(fileName, text);
-  console.log(`Ingested ${count} chunks from ${fileName}`);
+  log.info({ module: 'ingest', file: fileName, chunks: count }, 'Ingested file');
 }
 
 async function main() {
   if (!fs.existsSync(DOCS_DIR)) {
-    console.warn(`No docs/ folder found at ${DOCS_DIR}. Create it and add Markdown files to ingest.`);
+    log.warn({ module: 'ingest', path: DOCS_DIR }, 'No docs/ folder found');
     return;
   }
 
   const files = fs.readdirSync(DOCS_DIR).filter((f) => f.toLowerCase().endsWith('.md'));
 
   if (files.length === 0) {
-    console.warn(`No .md files found in ${DOCS_DIR}. Add at least one .md file and rerun.`);
+    log.warn({ module: 'ingest', path: DOCS_DIR }, 'No .md files found in docs folder');
     return;
   }
 
-  console.log(`Attempting to ingest ${files.length} file(s)...`);
+  log.info({ module: 'ingest', fileCount: files.length }, 'Starting batch ingestion');
   let successCount = 0;
   for (const file of files) {
     try {
       await ingestFile(path.join(DOCS_DIR, file));
       successCount++;
     } catch (error) {
-      console.error(`Failed to ingest ${file}: ${error.message}`);
+      log.error({ module: 'ingest', file, err: error.message }, 'Failed to ingest file');
     }
   }
-  console.log(`Successfully ingested ${successCount}/${files.length} file(s)`);
+  log.info({ module: 'ingest', success: successCount, total: files.length }, 'Batch ingestion complete');
 }
 
 // Only run main() when this file is executed directly (node ingest.js),

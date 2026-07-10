@@ -1,6 +1,6 @@
+import { getOpenAI } from './openai-client.js';
 import { logAnswer, retrieveContext } from './rag.js';
 import { isRetryableLLMError, withRetry } from './with-retry.js';
-import { getOpenAI } from './openai-client.js';
 
 const CHAT_MODEL = 'openai/gpt-4o-mini';
 

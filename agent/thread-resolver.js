@@ -1,6 +1,8 @@
+import log from './logger.js';
+import { getOpenAI } from './openai-client.js';
 import { updateUsageLedger } from './usage-ledger.js';
 import { isRetryableLLMError, withRetry } from './with-retry.js';
-import { getOpenAI } from './openai-client.js';
+
 const CHAT_MODEL = 'openai/gpt-4o-mini';
 
 /**
@@ -114,14 +116,17 @@ export async function judgeFollowUp(question, sources, replies, answerText = nul
 
     parsed = JSON.parse(res.choices[0].message.content);
   } catch (err) {
-    console.error('judgeFollowUp: LLM call or JSON parse failed:', err.message);
+    log.error({ module: 'thread-resolver', fn: 'judgeFollowUp', err: err.message }, 'LLM call or JSON parse failed');
     return { ...SAFE_DEFAULT };
   }
 
   const label = parsed.label;
 
   if (!VALID_LABELS.has(label)) {
-    console.error(`judgeFollowUp: invalid label "${label}"; returning safe default`);
+    log.error(
+      { module: 'thread-resolver', fn: 'judgeFollowUp', label },
+      'Invalid label returned from LLM — using safe default',
+    );
     return { ...SAFE_DEFAULT };
   }
 
@@ -137,7 +142,7 @@ export async function judgeFollowUp(question, sources, replies, answerText = nul
       updateUsageLedger(targets, 'correctionCount', ledgerPath);
     }
   } catch (err) {
-    console.error('judgeFollowUp: ledger update failed:', err.message);
+    log.error({ module: 'thread-resolver', fn: 'judgeFollowUp', err: err.message }, 'Usage ledger update failed');
   }
 
   return { label, correctedText, correctedSources };

@@ -1,8 +1,9 @@
 import { ChromaClient } from 'chromadb';
 import fs from 'fs';
 import path from 'path';
-import { updateUsageLedger } from './usage-ledger.js';
+import log from './logger.js';
 import { getOpenAI } from './openai-client.js';
+import { updateUsageLedger } from './usage-ledger.js';
 
 const chromaUrl = (process.env.CHROMA_URL ?? 'http://127.0.0.1:8000').replace('localhost', '127.0.0.1');
 const chromaHost = new URL(chromaUrl);
@@ -95,7 +96,7 @@ export async function retrieveContext(question, { channel, thread_ts } = {}) {
 
     return { context, sources, topScore, hasResults };
   } catch (error) {
-    console.error('ChromaDB error during retrieval:', error.message);
+    log.error({ module: 'rag', err: error.message }, 'ChromaDB error during retrieval');
     // Return empty results if Chroma fails, allowing the bot to still function
     logQuery({
       question,

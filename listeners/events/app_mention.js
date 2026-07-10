@@ -1,5 +1,6 @@
 import { assignOwner, loadDocOwners } from '../../agent/doc-owners.js';
 import { callLLM } from '../../agent/llm-caller.js';
+import log from '../../agent/logger.js';
 import { assignProcessOwner, loadProcessOwners } from '../../agent/process-owners.js';
 
 /**
@@ -86,7 +87,15 @@ export function parseProcessOwnerCommand(text) {
  * threadReplyCallback (events/thread_reply.js).
  */
 export const appMentionCallback = async ({ event, client, logger, say }) => {
-  console.log(`[app_mention] ts=${event.ts} thread_ts=${event.thread_ts ?? 'none'} text="${event.text?.slice(0, 80)}"`);
+  log.info(
+    {
+      module: 'app_mention',
+      ts: event.ts,
+      thread_ts: event.thread_ts ?? 'none',
+      textPreview: event.text?.slice(0, 80),
+    },
+    'App mention received',
+  );
   try {
     const { channel, text, team, user } = event;
     const thread_ts = event.thread_ts || event.ts;
@@ -97,7 +106,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     // Process-owner commands are checked first — "who owns process X" would
     // otherwise be swallowed by the doc-owner "who owns" pattern below.
     const processOwnerCmd = parseProcessOwnerCommand(cleanText);
-    console.log(`[app_mention] processOwnerCmd=${JSON.stringify(processOwnerCmd)}`);
+    log.debug({ module: 'app_mention', processOwnerCmd }, 'Process owner command parsed');
     if (processOwnerCmd) {
       if (processOwnerCmd.type === 'assign') {
         const result = assignProcessOwner(
@@ -142,11 +151,17 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     }
 
     const ownerCmd = parseOwnerCommand(cleanText);
-    console.log(`[app_mention] cleanText="${cleanText}" ownerCmd=${JSON.stringify(ownerCmd)}`);
+    log.debug({ module: 'app_mention', cleanText, ownerCmd }, 'Owner command parsed');
 
     if (ownerCmd) {
-      console.log(
-        `[app_mention] owner cmd: event.user=${user} APP_CREATOR_ID=${process.env.APP_CREATOR_ID} match=${user === process.env.APP_CREATOR_ID}`,
+      log.debug(
+        {
+          module: 'app_mention',
+          eventUser: user,
+          appCreatorId: process.env.APP_CREATOR_ID,
+          isCreator: user === process.env.APP_CREATOR_ID,
+        },
+        'Owner cmd context',
       );
       if (ownerCmd.type === 'assign') {
         const result = assignOwner(ownerCmd.docName, ownerCmd.newOwnerId, user);
@@ -188,7 +203,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     // Skip threaded @mentions — threadReplyCallback handles corrections
     // and follow-ups for replies in threads where the bot already answered.
     if (event.thread_ts) {
-      logger.info(`app_mention: threaded reply detected — deferring to threadReplyCallback`);
+      log.info({ module: 'app_mention' }, 'Threaded reply detected — deferring to threadReplyCallback');
       return;
     }
 
@@ -202,7 +217,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     await callLLM(streamer, [{ role: 'user', content: text }], { channel, thread_ts });
     await streamer.stop();
   } catch (e) {
-    logger.error(`app_mention: failed: ${e.stack ?? e}`);
+    log.error({ module: 'app_mention', err: e.stack ?? e }, 'App mention handler failed');
     await say(`:warning: Something went wrong! (${e.message ?? e})`);
   }
 };

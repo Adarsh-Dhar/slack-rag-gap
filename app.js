@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { App, LogLevel } from '@slack/bolt';
 import fs from 'fs';
 import path from 'path';
+import log from './agent/logger.js';
 import { ingestFile } from './ingest.js';
 import { registerListeners } from './listeners/index.js';
 import { startScheduler } from './scheduler.js';
@@ -21,9 +22,7 @@ function checkRequiredEnv() {
   const required = ['SLACK_APP_TOKEN', 'SLACK_BOT_TOKEN', 'GITHUB_TOKEN', 'STAKEHOLDER_USER_ID', 'APP_CREATOR_ID'];
   const missing = required.filter((k) => !process.env[k]);
   if (missing.length) {
-    console.error(
-      `\n❌ Missing required env vars: ${missing.join(', ')}\n   Set these in your .env file before starting the app.\n`,
-    );
+    log.fatal({ module: 'app', missing }, 'Missing required env vars');
     process.exit(1);
   }
 }
@@ -44,21 +43,19 @@ async function checkChroma() {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      console.log(`ChromaDB is reachable at ${url}`);
+      log.info({ module: 'app', url }, 'ChromaDB is reachable');
       return;
     } catch (err) {
       if (attempt < MAX_RETRIES) {
-        console.warn(
-          `ChromaDB not reachable (attempt ${attempt}/${MAX_RETRIES}): ${err.message}. Retrying in ${RETRY_DELAY_MS / 1000}s...`,
+        log.warn(
+          { module: 'app', attempt, maxRetries: MAX_RETRIES, err: err.message },
+          'ChromaDB not reachable — retrying',
         );
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       } else {
-        console.error(
-          '\n❌ ChromaDB is not running after ' +
-            MAX_RETRIES +
-            ' attempts. Start it in a separate terminal:\n' +
-            '   npm run chroma\n' +
-            `   (attempted to reach ${url}: ${err.message})\n`,
+        log.fatal(
+          { module: 'app', url, err: err.message, maxRetries: MAX_RETRIES },
+          'ChromaDB not running after all retries',
         );
         process.exit(1);
       }
@@ -93,15 +90,15 @@ async function ingestDocs() {
       );
       const count = await countRes.json();
       if (count > 0) {
-        console.log(`ChromaDB already has ${count} chunk(s) — skipping ingestion. Run 'node ingest.js' to re-ingest.`);
+        log.info({ module: 'app', count }, 'ChromaDB collection already populated — skipping ingestion');
         return;
       }
     }
   } catch (err) {
-    console.warn('Could not check collection count:', err.message);
+    log.warn({ module: 'app', err: err.message }, 'Could not check collection count');
   }
 
-  console.log(`Ingesting ${files.length} doc(s) into ChromaDB...`);
+  log.info({ module: 'app', fileCount: files.length }, 'Ingesting docs into ChromaDB');
   const TIMEOUT_MS = 60_000;
   for (const file of files) {
     const filePath = path.join(DOCS_DIR, file);
@@ -116,10 +113,10 @@ async function ingestDocs() {
         ),
       ]);
     } catch (err) {
-      console.error(`Ingestion failed for ${file}: ${err.message}`);
+      log.error({ module: 'app', file, err: err.message }, 'Ingestion failed for file');
     }
   }
-  console.log('Ingestion complete.');
+  log.info({ module: 'app' }, 'Ingestion complete');
 }
 
 const app = new App({
@@ -132,7 +129,7 @@ const app = new App({
 registerListeners(app);
 
 process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled Rejection:', reason);
+  log.error({ module: 'app', err: reason }, 'Unhandled Rejection');
 });
 
 (async () => {
@@ -141,7 +138,7 @@ process.on('unhandledRejection', (reason) => {
     await checkChroma();
     await ingestDocs(); // wait — app doesn't start until data is ready
     await app.start();
-    console.log('⚡️ Bolt app started');
+    log.info({ module: 'app' }, 'Bolt app started');
 
     // Runs gap-detect / staleness-detect on a recurring interval in-process,
     // so no separate cron entry or manual `npm run gap-detect` is needed for
@@ -150,10 +147,10 @@ process.on('unhandledRejection', (reason) => {
     if (process.env.ENABLE_SCHEDULER !== 'false') {
       startScheduler();
     } else {
-      console.log('[scheduler] disabled via ENABLE_SCHEDULER=false');
+      log.info({ module: 'scheduler' }, 'Scheduler disabled via ENABLE_SCHEDULER=false');
     }
   } catch (error) {
-    console.error('Failed to start app:', error);
+    log.fatal({ module: 'app', err: error.stack ?? error }, 'Failed to start app');
     process.exit(1);
   }
 })();

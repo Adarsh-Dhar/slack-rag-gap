@@ -1,3 +1,5 @@
+import log from './logger.js';
+
 /**
  * Generic retry-with-exponential-backoff wrapper for transient failures
  * (LLM completions, Slack API calls, etc). Not used for the ChromaDB
@@ -25,8 +27,9 @@ export async function withRetry(
       lastErr = err;
       if (!isRetryable(err) || attempt === retries) throw err;
       const delay = baseDelayMs * 2 ** (attempt - 1); // exponential backoff
-      console.warn(
-        `[retry] ${label} failed (attempt ${attempt}/${retries}): ${err.message}. Retrying in ${delay}ms...`,
+      log.warn(
+        { module: 'retry', label, attempt, retries, err: err.message, delayMs: delay },
+        'Retry after transient failure',
       );
       await new Promise((r) => setTimeout(r, delay));
     }
