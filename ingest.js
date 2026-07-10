@@ -2,8 +2,8 @@ import 'dotenv/config';
 import { ChromaClient } from 'chromadb';
 import fs from 'fs';
 import path from 'path';
+import { embed } from './agent/embeddings.js';
 import log from './agent/logger.js';
-import { getOpenAI } from './agent/openai-client.js';
 
 const chromaUrl = (process.env.CHROMA_URL ?? 'http://127.0.0.1:8000').replace('localhost', '127.0.0.1');
 const chromaHost = new URL(chromaUrl);
@@ -13,7 +13,6 @@ const chroma = new ChromaClient({
   ssl: chromaHost.protocol === 'https:',
 });
 const DOCS_DIR = path.join(process.cwd(), 'docs');
-const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
 // We always pass embeddings explicitly, so Chroma never needs to generate
 // its own — this stub avoids it trying to load @chroma-core/default-embed.
@@ -98,10 +97,10 @@ export async function ingestText(fileName, text) {
     }
 
     for (const [i, chunk] of chunks.entries()) {
-      const embedding = await getOpenAI().embeddings.create({ model: EMBEDDING_MODEL, input: chunk });
+      const embedding = await embed(chunk);
       await collection.add({
         ids: [`${fileName}-${i}`],
-        embeddings: [embedding.data[0].embedding],
+        embeddings: [embedding],
         documents: [chunk],
         metadatas: [{ source: fileName }],
       });

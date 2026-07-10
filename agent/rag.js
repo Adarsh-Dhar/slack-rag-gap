@@ -1,8 +1,8 @@
 import { ChromaClient } from 'chromadb';
 import fs from 'fs';
 import path from 'path';
+import { embed } from './embeddings.js';
 import log from './logger.js';
-import { getOpenAI } from './openai-client.js';
 import { updateUsageLedger } from './usage-ledger.js';
 
 const chromaUrl = (process.env.CHROMA_URL ?? 'http://127.0.0.1:8000').replace('localhost', '127.0.0.1');
@@ -13,7 +13,6 @@ const chroma = new ChromaClient({
   ssl: chromaHost.protocol === 'https:',
 });
 const COLLECTION_NAME = 'docs';
-const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
 // We always pass embeddings explicitly, so Chroma never needs to generate
 // its own — this stub avoids it trying to load @chroma-core/default-embed.
@@ -52,10 +51,7 @@ function logQuery(entry) {
  * @returns {Promise<{context: string, sources: string[], topScore: number|null, hasResults: boolean}>}
  */
 export async function retrieveContext(question, { channel, thread_ts } = {}) {
-  const embeddingRes = await getOpenAI().embeddings.create({
-    model: EMBEDDING_MODEL,
-    input: question,
-  });
+  const embedding = await embed(question);
 
   try {
     const collection = await chroma.getOrCreateCollection({
@@ -63,7 +59,7 @@ export async function retrieveContext(question, { channel, thread_ts } = {}) {
       embeddingFunction: noopEmbeddingFunction,
     });
     const results = await collection.query({
-      queryEmbeddings: [embeddingRes.data[0].embedding],
+      queryEmbeddings: [embedding],
       nResults: 4,
     });
 

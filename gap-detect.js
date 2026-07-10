@@ -1,20 +1,21 @@
 import 'dotenv/config';
+import { randomUUID } from 'crypto';
 import { WebClient } from '@slack/web-api';
 import fs from 'fs';
 import path from 'path';
 import { draftStub, slugify } from './agent/draft-generator.js';
-import { cosineSimilarity, embed, recencyWeight } from './agent/embeddings.js';
+import { embed, recencyWeight } from './agent/embeddings.js';
 import { recordFailure } from './agent/failure-counter.js';
+import { findNearestCluster, listClusters, resetClusters, upsertCluster } from './agent/gap-store.js';
 import log from './agent/logger.js';
 import { notifyStakeholder, pingForExplanation } from './agent/notify-stakeholder.js';
 import { recordResolution, resolveOwner } from './agent/sme-router.js';
-import { readJSON, withFileLockSync, writeJSONAtomic } from './agent/store.js';
+import { withFileLockSync, writeJSONAtomic } from './agent/store.js';
 import { judgeResolution } from './agent/thread-resolver.js';
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 const LOG_PATH = path.join(process.cwd(), 'query-log.jsonl');
-const GAPS_PATH = path.join(process.cwd(), 'gaps.json');
 const FAILED_DRAFTS_PATH = path.join(process.cwd(), 'failed-drafts.json');
 const MAX_CONSECUTIVE_FAILURES = parseInt(process.env.MAX_CONSECUTIVE_FAILURES) || 5;
 
@@ -85,67 +86,80 @@ function clusterMatchesResolvedSlug(representative, resolvedSlugs) {
 }
 
 /**
- * Greedy single-pass clustering: for each question, join the most similar
+ * Single-pass clustering: for each question, join the most similar
  * existing cluster if it's above threshold, else start a new one. Order-
  * dependent and doesn't re-merge clusters after the fact — fine for MVP,
  * revisit if clusters start looking wrong once you have more data.
+ *
+ * Clusters live in the `gap-clusters` Chroma collection instead of an
+ * in-memory array. gap-detect.js still rebuilds from the full
+ * query-log.jsonl on every run (loadUnansweredQueries reads the whole
+ * file each time), so the collection is wiped first — but the per-question
+ * nearest-cluster lookup is now a Chroma ANN `.query()` call instead of a
+ * loop computing cosineSimilarity() against every cluster seen so far.
  */
 async function clusterQuestions(queries) {
-  const clusters = []; // { centroid: number[], members: {question, timestamp}[] }
+  const collection = await resetClusters();
 
   for (const entry of queries) {
     const embedding = await embed(entry.question);
 
-    let bestCluster = null;
-    let bestScore = -1;
-    for (const cluster of clusters) {
-      const score = cosineSimilarity(embedding, cluster.centroid);
-      if (score > bestScore) {
-        bestScore = score;
-        bestCluster = cluster;
-      }
-    }
+    const newMember = {
+      question: entry.question,
+      timestamp: entry.timestamp,
+      channel: entry.channel,
+      thread_ts: entry.thread_ts,
+    };
 
-    if (bestCluster && bestScore >= SIMILARITY_THRESHOLD) {
-      bestCluster.members.push({
-        question: entry.question,
-        timestamp: entry.timestamp,
-        channel: entry.channel,
-        thread_ts: entry.thread_ts,
-      });
+    const nearest = await findNearestCluster(collection, embedding);
+
+    if (nearest && nearest.similarity >= SIMILARITY_THRESHOLD) {
+      const members = JSON.parse(nearest.metadata.membersJson);
+      members.push(newMember);
+
       // Running mean, so the centroid stays the average of every member seen so far.
-      const n = bestCluster.members.length;
-      bestCluster.centroid = bestCluster.centroid.map((v, i) => (v * (n - 1) + embedding[i]) / n);
+      const n = members.length;
+      const centroid = nearest.centroidEmbedding.map((v, i) => (v * (n - 1) + embedding[i]) / n);
+
+      await upsertCluster(collection, nearest.id, centroid, {
+        representative: members[0].question,
+        membersJson: JSON.stringify(members),
+        hitCount: members.length,
+        lastSeen: newMember.timestamp,
+        channel: newMember.channel ?? '',
+      });
     } else {
-      clusters.push({
-        centroid: embedding,
-        members: [
-          {
-            question: entry.question,
-            timestamp: entry.timestamp,
-            channel: entry.channel,
-            thread_ts: entry.thread_ts,
-          },
-        ],
+      await upsertCluster(collection, `cluster-${randomUUID()}`, embedding, {
+        representative: newMember.question,
+        membersJson: JSON.stringify([newMember]),
+        hitCount: 1,
+        lastSeen: newMember.timestamp,
+        channel: newMember.channel ?? '',
       });
     }
   }
 
-  return clusters;
+  return listClusters(collection);
 }
 
+/**
+ * @param {{id: string, embedding: number[]|null, metadata: object}[]} clusters - as returned by listClusters()
+ */
 function rankClusters(clusters) {
   return clusters
-    .map((cluster) => ({
-      representative: cluster.members[0].question,
-      hitCount: cluster.members.length,
-      score: cluster.members.reduce((sum, m) => sum + recencyWeight(m.timestamp), 0),
-      lastSeen: cluster.members
-        .map((m) => m.timestamp)
-        .sort()
-        .at(-1),
-      members: cluster.members,
-    }))
+    .map((cluster) => {
+      const members = JSON.parse(cluster.metadata.membersJson);
+      return {
+        representative: cluster.metadata.representative,
+        hitCount: members.length,
+        score: members.reduce((sum, m) => sum + recencyWeight(m.timestamp), 0),
+        lastSeen: members
+          .map((m) => m.timestamp)
+          .sort()
+          .at(-1),
+        members,
+      };
+    })
     .sort((a, b) => b.score - a.score);
 }
 
@@ -274,9 +288,10 @@ export async function main() {
   const clusters = await clusterQuestions(queries);
   const ranked = rankClusters(clusters);
 
-  writeJSONAtomic(GAPS_PATH, ranked);
-
-  log.info({ module: 'gap-detect', clusterCount: ranked.length, path: GAPS_PATH }, 'Wrote gap clusters');
+  log.info(
+    { module: 'gap-detect', clusterCount: ranked.length, collection: 'gap-clusters' },
+    'Wrote gap clusters to Chroma',
+  );
   for (const gap of ranked.slice(0, 10)) {
     log.info(
       {
