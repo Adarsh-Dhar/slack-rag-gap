@@ -1,13 +1,8 @@
 import 'dotenv/config';
 import { ChromaClient } from 'chromadb';
 import fs from 'fs';
-import { OpenAI } from 'openai';
 import path from 'path';
-
-const openai = new OpenAI({
-  apiKey: process.env.GITHUB_TOKEN,
-  baseURL: 'https://models.github.ai/inference',
-});
+import { getOpenAI } from './agent/openai-client.js';
 
 const chromaUrl = (process.env.CHROMA_URL ?? 'http://127.0.0.1:8000').replace('localhost', '127.0.0.1');
 const chromaHost = new URL(chromaUrl);
@@ -99,7 +94,7 @@ export async function ingestText(fileName, text) {
     }
 
     for (const [i, chunk] of chunks.entries()) {
-      const embedding = await openai.embeddings.create({ model: EMBEDDING_MODEL, input: chunk });
+      const embedding = await getOpenAI().embeddings.create({ model: EMBEDDING_MODEL, input: chunk });
       await collection.add({
         ids: [`${fileName}-${i}`],
         embeddings: [embedding.data[0].embedding],

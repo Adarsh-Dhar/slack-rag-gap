@@ -1,17 +1,13 @@
-import { OpenAI } from 'openai';
+import { getOpenAI } from './openai-client.js';
 
 // Same client/model as agent/rag.js, ingest.js, and gap-detect.js — one place
 // so routing logic (sme-router.js) and gap clustering (gap-detect.js) don't
 // drift out of sync.
-const openai = new OpenAI({
-  apiKey: process.env.GITHUB_TOKEN,
-  baseURL: 'https://models.github.ai/inference',
-});
 
 export const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
 export async function embed(text) {
-  const res = await openai.embeddings.create({ model: EMBEDDING_MODEL, input: text });
+  const res = await getOpenAI().embeddings.create({ model: EMBEDDING_MODEL, input: text });
   return res.data[0].embedding;
 }
 

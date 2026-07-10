@@ -1,12 +1,7 @@
 import fs from 'fs';
-import { OpenAI } from 'openai';
 import path from 'path';
 import { isRetryableLLMError, withRetry } from './with-retry.js';
-
-const openai = new OpenAI({
-  apiKey: process.env.GITHUB_TOKEN,
-  baseURL: 'https://models.github.ai/inference',
-});
+import { getOpenAI } from './openai-client.js';
 const CHAT_MODEL = 'openai/gpt-4o-mini';
 const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');
 const DOCS_DIR = path.join(process.cwd(), 'docs');
@@ -31,7 +26,7 @@ function slugify(s) {
 export async function draftStub({ question, resolvingText, permalink, hitCount }) {
   const res = await withRetry(
     () =>
-      openai.chat.completions.create({
+      getOpenAI().chat.completions.create({
         model: CHAT_MODEL,
         response_format: { type: 'json_object' },
         messages: [
@@ -100,7 +95,7 @@ export async function draftCorrection({ docSource, correctionText, permalink }) 
 
   const res = await withRetry(
     () =>
-      openai.chat.completions.create({
+      getOpenAI().chat.completions.create({
         model: CHAT_MODEL,
         response_format: { type: 'json_object' },
         messages: [

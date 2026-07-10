@@ -1,12 +1,6 @@
-import { OpenAI } from 'openai';
 import { logAnswer, retrieveContext } from './rag.js';
 import { isRetryableLLMError, withRetry } from './with-retry.js';
-
-// OpenAI-compatible client pointed at GitHub Models
-const openai = new OpenAI({
-  apiKey: process.env.GITHUB_TOKEN,
-  baseURL: 'https://models.github.ai/inference',
-});
+import { getOpenAI } from './openai-client.js';
 
 const CHAT_MODEL = 'openai/gpt-4o-mini';
 
@@ -45,7 +39,7 @@ export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
   // tokens already sent to the user.
   const stream = await withRetry(
     () =>
-      openai.chat.completions.create({
+      getOpenAI().chat.completions.create({
         model: CHAT_MODEL,
         messages: prompts,
         stream: true,

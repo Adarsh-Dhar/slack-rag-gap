@@ -1,13 +1,8 @@
 import { ChromaClient } from 'chromadb';
 import fs from 'fs';
-import { OpenAI } from 'openai';
 import path from 'path';
 import { updateUsageLedger } from './usage-ledger.js';
-
-const openai = new OpenAI({
-  apiKey: process.env.GITHUB_TOKEN,
-  baseURL: 'https://models.github.ai/inference',
-});
+import { getOpenAI } from './openai-client.js';
 
 const chromaUrl = (process.env.CHROMA_URL ?? 'http://127.0.0.1:8000').replace('localhost', '127.0.0.1');
 const chromaHost = new URL(chromaUrl);
@@ -56,7 +51,7 @@ function logQuery(entry) {
  * @returns {Promise<{context: string, sources: string[], topScore: number|null, hasResults: boolean}>}
  */
 export async function retrieveContext(question, { channel, thread_ts } = {}) {
-  const embeddingRes = await openai.embeddings.create({
+  const embeddingRes = await getOpenAI().embeddings.create({
     model: EMBEDDING_MODEL,
     input: question,
   });

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+        env:
+          # Not a real credential — the LLM tests patch the OpenAI SDK's
+          # Completions prototype to intercept calls (see test/*.test.js),
+          # so nothing here ever reaches models.github.ai. It only needs to
+          # be a truthy string: the OpenAI client throws at construction
+          # time if apiKey is empty, before the mocked prototype is ever
+          # consulted.
+          GITHUB_TOKEN: ci-placeholder-token

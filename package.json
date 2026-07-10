@@ -10,6 +10,7 @@
     "chroma": "chroma run --path ./chroma-data --port 8000",
     "lint": "npx @biomejs/biome check *.js agent/ listeners/",
     "lint:fix": "npx @biomejs/biome check --write *.js agent/ listeners/",
+    "test": "node --test test/*.js",
     "gap-detect": "node gap-detect.js",
     "staleness-detect": "node staleness-detect.js",
     "scheduler": "node scheduler.js"

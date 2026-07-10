@@ -1,11 +1,6 @@
-import { OpenAI } from 'openai';
 import { updateUsageLedger } from './usage-ledger.js';
 import { isRetryableLLMError, withRetry } from './with-retry.js';
-
-const openai = new OpenAI({
-  apiKey: process.env.GITHUB_TOKEN,
-  baseURL: 'https://models.github.ai/inference',
-});
+import { getOpenAI } from './openai-client.js';
 const CHAT_MODEL = 'openai/gpt-4o-mini';
 
 /**
@@ -27,7 +22,7 @@ export async function judgeResolution(question, replies) {
 
   const res = await withRetry(
     () =>
-      openai.chat.completions.create({
+      getOpenAI().chat.completions.create({
         model: CHAT_MODEL,
         response_format: { type: 'json_object' },
         messages: [
@@ -87,7 +82,7 @@ export async function judgeFollowUp(question, sources, replies, answerText = nul
   try {
     const res = await withRetry(
       () =>
-        openai.chat.completions.create({
+        getOpenAI().chat.completions.create({
           model: CHAT_MODEL,
           response_format: { type: 'json_object' },
           messages: [
