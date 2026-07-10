@@ -207,15 +207,49 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       return;
     }
 
-    const streamer = client.chatStream({
-      channel: channel,
-      recipient_team_id: team,
-      recipient_user_id: user,
-      thread_ts: thread_ts,
-    });
+    try {
+      const streamer = client.chatStream({
+        channel: channel,
+        recipient_team_id: team,
+        recipient_user_id: user,
+        thread_ts: thread_ts,
+      });
 
-    await callLLM(streamer, [{ role: 'user', content: text }], { channel, thread_ts });
-    await streamer.stop();
+      await callLLM(streamer, [{ role: 'user', content: text }], { channel, thread_ts });
+      await streamer.stop();
+    } catch (streamErr) {
+      // Fallback: if streaming fails (e.g. missing scope, API error), use
+      // say() so the user still gets a response instead of silence.
+      log.warn(
+        { module: 'app_mention', err: streamErr.message },
+        'Streaming failed — falling back to say()',
+      );
+      const { retrieveContext } = await import('../../agent/rag.js');
+      const { getOpenAI } = await import('../../agent/openai-client.js');
+      const { withRetry, isRetryableLLMError } = await import('../../agent/with-retry.js');
+      const { logAnswer } = await import('../../agent/rag.js');
+
+      const { context, sources, hasResults } = await retrieveContext(text, { channel, thread_ts });
+      const systemContent = hasResults
+        ? `Answer only using the provided context. If the context doesn't fully answer the question, say so explicitly rather than guessing. Cite sources by name when relevant.\n\nContext:\n${context}\n\nSources: ${sources.join(', ')}`
+        : `No relevant documentation was found for this question. Tell the user you don't have documentation on this topic yet, rather than guessing an answer.`;
+
+      const res = await withRetry(
+        () =>
+          getOpenAI().chat.completions.create({
+            model: 'openai/gpt-4o-mini',
+            messages: [
+              { role: 'system', content: systemContent },
+              { role: 'user', content: text },
+            ],
+          }),
+        { isRetryable: isRetryableLLMError, label: 'app_mention fallback completion' },
+      );
+
+      const answer = res.choices[0].message.content;
+      await say({ text: answer, thread_ts });
+      logAnswer(text, answer, { channel, thread_ts });
+    }
   } catch (e) {
     log.error({ module: 'app_mention', err: e.stack ?? e }, 'App mention handler failed');
     await say(`:warning: Something went wrong! (${e.message ?? e})`);

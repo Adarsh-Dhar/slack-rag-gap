@@ -7,6 +7,7 @@ const chroma = new ChromaClient({
   host: chromaHost.hostname,
   port: parseInt(chromaUrl.split(':').pop()) || 8000,
   ssl: chromaHost.protocol === 'https:',
+  auth: undefined,
 });
 
 const COLLECTION_NAME = 'gap-clusters';

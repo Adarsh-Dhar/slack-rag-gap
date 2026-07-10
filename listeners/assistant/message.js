@@ -172,18 +172,48 @@ export const message = async ({ client, context, logger, message, say, setStatus
   try {
     await setStatus('thinking...');
 
-    const streamer = client.chatStream({
-      channel: channel,
-      recipient_team_id: context.teamId,
-      recipient_user_id: context.userId,
-      thread_ts: thread_ts,
-      task_display_mode: 'timeline',
-    });
-
     const prompts = [{ role: 'user', content: text }];
 
-    await callLLM(streamer, prompts, { channel, thread_ts });
-    await streamer.stop();
+    try {
+      const streamer = client.chatStream({
+        channel: channel,
+        recipient_team_id: context.teamId,
+        recipient_user_id: context.userId,
+        thread_ts: thread_ts,
+        task_display_mode: 'timeline',
+      });
+
+      await callLLM(streamer, prompts, { channel, thread_ts });
+      await streamer.stop();
+    } catch (streamErr) {
+      // Fallback: if streaming fails (e.g. missing scope, API error), use
+      // say() so the user still gets a response instead of silence.
+      logger.warn(`Streaming failed — falling back to say(): ${streamErr.message}`);
+      const { retrieveContext, logAnswer } = await import('../../agent/rag.js');
+      const { getOpenAI } = await import('../../agent/openai-client.js');
+      const { withRetry, isRetryableLLMError } = await import('../../agent/with-retry.js');
+
+      const { context: ctx, sources, hasResults } = await retrieveContext(text, { channel, thread_ts });
+      const systemContent = hasResults
+        ? `Answer only using the provided context. If the context doesn't fully answer the question, say so explicitly rather than guessing. Cite sources by name when relevant.\n\nContext:\n${ctx}\n\nSources: ${sources.join(', ')}`
+        : `No relevant documentation was found for this question. Tell the user you don't have documentation on this topic yet, rather than guessing an answer.`;
+
+      const res = await withRetry(
+        () =>
+          getOpenAI().chat.completions.create({
+            model: 'openai/gpt-4o-mini',
+            messages: [
+              { role: 'system', content: systemContent },
+              { role: 'user', content: text },
+            ],
+          }),
+        { isRetryable: isRetryableLLMError, label: 'assistant message fallback completion' },
+      );
+
+      const answer = res.choices[0].message.content;
+      await say(answer);
+      logAnswer(text, answer, { channel, thread_ts });
+    }
   } catch (e) {
     logger.error(`Failed to handle a user message event: ${e.stack ?? e}`);
     try {

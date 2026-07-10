@@ -1,5 +1,6 @@
 import { appMentionCallback } from './app_mention.js';
 import { threadReplyCallback } from './thread_reply.js';
+import log from '../../agent/logger.js';
 
 /**
  * @param {import("@slack/bolt").App} app
@@ -18,5 +19,12 @@ export const register = (app) => {
     if (!event.thread_ts || event.subtype === 'bot_message' || event.subtype === 'message_changed' || event.bot_id)
       return;
     await threadReplyCallback({ event, client, logger });
+  });
+
+  // Diagnostic: log assistant_thread events to confirm they're being delivered.
+  // If these don't appear in logs when you open the Assistant panel, Slack isn't
+  // delivering events — restart `slack run` and check the bot is installed correctly.
+  app.event('assistant_thread_started', async ({ logger }) => {
+    logger.info('assistant_thread_started event received — Slack event delivery is working');
   });
 };

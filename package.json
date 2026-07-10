@@ -7,7 +7,7 @@
   "scripts": {
     "check": "npx tsc --checkJs --noEmit --esModuleInterop --target esnext --module nodenext --moduleResolution nodenext app.js",
     "start": "node app.js",
-    "chroma": "chroma run --path ./chroma-data --port 8000",
+    "chroma": "chroma run --path ./chroma-data --port 8000 --host 0.0.0.0",
     "lint": "npx @biomejs/biome check *.js agent/ listeners/",
     "lint:fix": "npx @biomejs/biome check --write *.js agent/ listeners/",
     "test": "node --test test/*.js",
