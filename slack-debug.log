@@ -1,0 +1,39 @@
+]11;?[c[?2026$p[?2027$p[?25l[?5W[?2004h[?1004h[>4;2m[=1;1u[?u[J┃ [38;5;246;1mSelect an app[m
+┃ [38;5;39;1m❱ [38;5;29mA0BG7B1S54P[m [38;5;244madarsh-123[m [2mE0BF8AGTCCF[m
+┃   [38;5;244mCreate a new app[m
+
+[38;2;98;98;98m↑[m [38;2;74;74;74mup[38;2;60;60;60m • [38;2;98;98;98m↓[m [38;2;74;74;74mdown[38;2;60;60;60m • [38;2;98;98;98m/[m [38;2;74;74;74mfilter[38;2;60;60;60m • [38;2;98;98;98menter[m [38;2;74;74;74msubmit[m[?2026h[4A[J[?2026l[>4m[=0;1u[J[?25h[?2004l[?1004l
+📚 App Manifest
+   [38;5;244mUpdated app manifest for "my-rag-bot" in "adarsh123"[0m
+
+🏠 App Install
+   [38;5;244mInstalling "my-rag-bot (local)" app to "adarsh123"[0m
+   [38;5;244mFinished in 3.4s[0m
+✨ [38;5;244msd0be1h1ce0j_user of adarsh123[0m
+[1G[0K⠙[1G[0K⠹[1G[0K⠸[1G[0K⠼[1G[0K[DEBUG]  web-api:WebClient:0 initialized
+[DEBUG]  bolt-app Initializing SocketModeReceiver
+[DEBUG]  web-api:WebClient:1 initialized
+[DEBUG]  socket-mode:SocketModeClient:0 The Socket Mode client has successfully initialized
+[DEBUG]  web-api:WebClient:0 apiCall('auth.test') start
+[DEBUG]  web-api:WebClient:0 http request url: https://slack.com/api/auth.test
+[DEBUG]  web-api:WebClient:0 http request body: {"token":"[[REDACTED]]"}
+[DEBUG]  web-api:WebClient:0 http request headers: {"Accept":"application/json, text/plain, */*","query":"{}","User-Agent":"@slack:socket-mode/2.0.7 @slack:bolt/4.7.3 @slack:web-api/7.19.0 node/24.4.1 darwin/25.3.0","Authorization":"[[REDACTED]]"}
+{"level":30,"time":"2026-07-11T13:07:10.383Z","service":"my-rag-bot","module":"app","url":"http://127.0.0.1:8000/api/v2/heartbeat","msg":"ChromaDB is reachable"}
+{"level":30,"time":"2026-07-11T13:07:10.437Z","service":"my-rag-bot","module":"app","count":11,"msg":"ChromaDB collection already populated — skipping ingestion"}
+[DEBUG]  socket-mode:SocketModeClient:0 Starting Socket Mode session ...
+[DEBUG]  socket-mode:SocketModeClient:0 Going to retrieve a new WSS URL ...
+[DEBUG]  web-api:WebClient:1 apiCall('apps.connections.open') start
+[DEBUG]  web-api:WebClient:1 http request url: https://slack.com/api/apps.connections.open
+[DEBUG]  web-api:WebClient:1 http request body: {}
+[DEBUG]  web-api:WebClient:1 http request headers: {"Accept":"application/json, text/plain, */*","query":"{}","User-Agent":"@slack:socket-mode/2.0.7 @slack:bolt/4.7.3 @slack:web-api/7.19.0 node/24.4.1 darwin/25.3.0","Authorization":"[[REDACTED]]"}
+[DEBUG]  web-api:WebClient:0 http response received
+[DEBUG]  web-api:WebClient:0 http request result: {"ok":true,"url":"https://adarsh-123.enterprise.slack.com/","team":"adarsh123","user":"myragbot_local","team_id":"E0BF8AGTCCF","user_id":"U0BGNMVDWHY","bot_id":"B0BGSDJK8KW","enterprise_id":"E0BF8AGTCCF","is_enterprise_install":true,"response_metadata":{"scopes":["app_mentions:read","assistant:write","channels:history","channels:join","channels:read","chat:write","im:history","im:read","im:write","groups:history","groups:read","mpim:history","mpim:write","users:read"]}}
+[DEBUG]  web-api:WebClient:0 apiCall('auth.test') end
+[DEBUG]  web-api:WebClient:1 http response received
+[DEBUG]  web-api:WebClient:1 http request result: {"ok":true,"url":"wss://wss-primary.slack.com/link/?ticket=ba06f619-9b80-488e-83bd-a1a5f99bee60&app_id=5476fb0c495ff5db9c1e1d7e1193c23c0ea91527061acbf490f1c8117cf4a917","response_metadata":{"scopes":["connections:write"],"acceptedScopes":["connections:write"]}}
+[DEBUG]  web-api:WebClient:1 apiCall('apps.connections.open') end
+[DEBUG]  socket-mode:SlackWebSocket:1 Initiating new WebSocket connection.
+[DEBUG]  socket-mode:SlackWebSocket:1 WebSocket open event received (connection established)!
+[DEBUG]  socket-mode:SlackWebSocket:1 Started monitoring pings to and pongs from Slack.
+[DEBUG]  socket-mode:SocketModeClient:0 Received a message on the WebSocket: {"type":"hello","num_connections":1,"debug_info":{"host":"applink-6","build_number":21,"approximate_connection_time":18060},"connection_info":{"app_id":"A0BG7B1S54P"}}
+{"level":30,"time":"2026-07-1
