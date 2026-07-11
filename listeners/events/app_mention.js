@@ -2,6 +2,7 @@ import { assignOwner, loadDocOwners } from '../../agent/doc-owners.js';
 import { callLLM } from '../../agent/llm-caller.js';
 import log from '../../agent/logger.js';
 import { assignProcessOwner, loadProcessOwners } from '../../agent/process-owners.js';
+import { getLastAnswerForThread } from '../../agent/rag.js';
 
 /**
  * Parses an ownership command from the text (after the bot @mention is stripped).
@@ -202,9 +203,15 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
 
     // Skip threaded @mentions — threadReplyCallback handles corrections
     // and follow-ups for replies in threads where the bot already answered.
+    // However, if this is the first mention in a thread (no logged answer yet),
+    // we should still process it as a regular question.
     if (event.thread_ts) {
-      log.info({ module: 'app_mention' }, 'Threaded reply detected — deferring to threadReplyCallback');
-      return;
+      const lastAnswer = getLastAnswerForThread(channel, event.thread_ts);
+      if (lastAnswer) {
+        log.info({ module: 'app_mention' }, 'Threaded reply detected in thread with existing answer — deferring to threadReplyCallback');
+        return;
+      }
+      log.info({ module: 'app_mention' }, 'Threaded mention in new thread — processing as fresh question');
     }
 
     try {

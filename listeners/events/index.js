@@ -1,11 +1,18 @@
 import { appMentionCallback } from './app_mention.js';
 import { threadReplyCallback } from './thread_reply.js';
+import { getLastAnswerForThread } from '../../agent/rag.js';
 import log from '../../agent/logger.js';
 
 /**
  * @param {import("@slack/bolt").App} app
  */
 export const register = (app) => {
+  // Diagnostic: log all events to verify Slack is delivering anything
+  app.use(async ({ next, logger, event }) => {
+    logger.info(`Event received: ${event.type}`, { eventType: event.type });
+    await next();
+  });
+
   app.event('app_mention', appMentionCallback);
 
   // Listen for threaded replies so we can detect corrections and follow-ups

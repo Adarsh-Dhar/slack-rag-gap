@@ -19,7 +19,7 @@ const DOCS_DIR = path.join(process.cwd(), 'docs');
  * every call site already just reads process.env.X.
  */
 function checkRequiredEnv() {
-  const required = ['SLACK_APP_TOKEN', 'SLACK_BOT_TOKEN', 'GITHUB_TOKEN', 'STAKEHOLDER_USER_ID', 'APP_CREATOR_ID'];
+  const required = ['SLACK_APP_TOKEN', 'SLACK_BOT_TOKEN', 'SLACK_SIGNING_SECRET', 'GITHUB_TOKEN', 'STAKEHOLDER_USER_ID', 'APP_CREATOR_ID'];
   const missing = required.filter((k) => !process.env[k]);
   if (missing.length) {
     log.fatal({ module: 'app', missing }, 'Missing required env vars');
@@ -122,6 +122,7 @@ async function ingestDocs() {
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   appToken: process.env.SLACK_APP_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: true,
   logLevel: LogLevel.INFO,
 });
@@ -137,8 +138,8 @@ process.on('unhandledRejection', (reason) => {
     checkRequiredEnv();
     await checkChroma();
     await ingestDocs(); // wait — app doesn't start until data is ready
-    await app.start();
-    log.info({ module: 'app' }, 'Bolt app started');
+    await app.start(3000);
+    log.info({ module: 'app' }, 'Bolt app started on port 3000');
 
     // Runs gap-detect / staleness-detect on a recurring interval in-process,
     // so no separate cron entry or manual `npm run gap-detect` is needed for
@@ -149,6 +150,12 @@ process.on('unhandledRejection', (reason) => {
     } else {
       log.info({ module: 'scheduler' }, 'Scheduler disabled via ENABLE_SCHEDULER=false');
     }
+    
+    // Keep the process alive for HTTP mode
+    log.info({ module: 'app' }, 'Server is running - press Ctrl+C to stop');
+    
+    // Prevent process from exiting in HTTP mode
+    await new Promise(() => {}); // Keep alive indefinitely
   } catch (error) {
     log.fatal({ module: 'app', err: error.stack ?? error }, 'Failed to start app');
     process.exit(1);
