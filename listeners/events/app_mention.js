@@ -222,7 +222,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         thread_ts: thread_ts,
       });
 
-      await callLLM(streamer, [{ role: 'user', content: text }], { channel, thread_ts });
+      await callLLM(streamer, [{ role: 'user', content: text }], { channel, thread_ts, source: 'app_mention' });
       await streamer.stop();
     } catch (streamErr) {
       // Fallback: if streaming fails (e.g. missing scope, API error), use
@@ -236,7 +236,11 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       const { withRetry, isRetryableLLMError } = await import('../../agent/with-retry.js');
       const { logAnswer } = await import('../../agent/rag.js');
 
-      const { context, sources, hasResults } = await retrieveContext(text, { channel, thread_ts });
+      const { context, sources, hasResults } = await retrieveContext(text, {
+        channel,
+        thread_ts,
+        source: 'app_mention_fallback',
+      });
       const systemContent = hasResults
         ? `Answer only using the provided context. If the context doesn't fully answer the question, say so explicitly rather than guessing. Cite sources by name when relevant.\n\nContext:\n${context}\n\nSources: ${sources.join(', ')}`
         : `No relevant documentation was found for this question. Tell the user you don't have documentation on this topic yet, rather than guessing an answer.`;

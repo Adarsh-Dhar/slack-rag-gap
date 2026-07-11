@@ -45,13 +45,41 @@ function logQuery(entry) {
 }
 
 /**
+ * Logs every message directed at the agent, from any source, before it's
+ * embedded or otherwise processed. This is the single point all listeners
+ * (and their fallback paths) call into — call it as early as possible in
+ * each listener, right after you have `text`/`channel`/`thread_ts`.
+ *
+ * @param {string} question - raw message text
+ * @param {{channel?: string, thread_ts?: string, source: string}} meta
+ */
+export function logIncomingMessage(question, { channel, thread_ts, source }) {
+  log.info(
+    {
+      module: 'rag',
+      event: 'incoming_message',
+      source: source ?? 'unknown',
+      channel,
+      thread_ts,
+      question,
+    },
+    'Message received',
+  );
+}
+
+/**
  * Embeds a question, retrieves the most relevant chunks from the vector
  * store, and returns both the context text and a confidence signal.
  *
  * @param {string} question
  * @returns {Promise<{context: string, sources: string[], topScore: number|null, hasResults: boolean}>}
  */
-export async function retrieveContext(question, { channel, thread_ts } = {}) {
+export async function retrieveContext(question, { channel, thread_ts, source } = {}) {
+  // Single choke point: every message directed at the agent — from any
+  // listener, any fallback path — passes through here before embedding.
+  // Log the full raw text here, once, instead of relying on each listener
+  // to log it independently.
+  logIncomingMessage(question, { channel, thread_ts, source });
   const embedding = await embed(question);
 
   try {

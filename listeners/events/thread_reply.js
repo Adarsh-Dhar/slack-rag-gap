@@ -2,7 +2,7 @@ import { assignOwner, loadDocOwners } from '../../agent/doc-owners.js';
 import { draftCorrection } from '../../agent/draft-generator.js';
 import { notifyStakeholder } from '../../agent/notify-stakeholder.js';
 import { assignProcessOwner, loadProcessOwners } from '../../agent/process-owners.js';
-import { getLastAnswerForThread } from '../../agent/rag.js';
+import { getLastAnswerForThread, logIncomingMessage } from '../../agent/rag.js';
 import { judgeFollowUp } from '../../agent/thread-resolver.js';
 import { parseOwnerCommand, parseProcessOwnerCommand } from './app_mention.js';
 
@@ -27,6 +27,8 @@ export async function threadReplyCallback({ event, client, logger }) {
 
   // Only process threaded replies that aren't the bot's own messages
   if (!thread_ts || !text || !user) return;
+
+  logIncomingMessage(text, { channel, thread_ts, source: 'thread_reply' });
 
   // Handle ownership commands (assign/set/transfer/who/list) before anything else.
   // These must work even in threads where the bot previously answered.

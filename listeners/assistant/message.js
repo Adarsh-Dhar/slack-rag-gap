@@ -183,7 +183,7 @@ export const message = async ({ client, context, logger, message, say, setStatus
         task_display_mode: 'timeline',
       });
 
-      await callLLM(streamer, prompts, { channel, thread_ts });
+      await callLLM(streamer, prompts, { channel, thread_ts, source: 'assistant_panel' });
       await streamer.stop();
     } catch (streamErr) {
       // Fallback: if streaming fails (e.g. missing scope, API error), use
@@ -193,7 +193,11 @@ export const message = async ({ client, context, logger, message, say, setStatus
       const { getOpenAI } = await import('../../agent/openai-client.js');
       const { withRetry, isRetryableLLMError } = await import('../../agent/with-retry.js');
 
-      const { context: ctx, sources, hasResults } = await retrieveContext(text, { channel, thread_ts });
+      const { context: ctx, sources, hasResults } = await retrieveContext(text, {
+        channel,
+        thread_ts,
+        source: 'assistant_panel_fallback',
+      });
       const systemContent = hasResults
         ? `Answer only using the provided context. If the context doesn't fully answer the question, say so explicitly rather than guessing. Cite sources by name when relevant.\n\nContext:\n${ctx}\n\nSources: ${sources.join(', ')}`
         : `No relevant documentation was found for this question. Tell the user you don't have documentation on this topic yet, rather than guessing an answer.`;

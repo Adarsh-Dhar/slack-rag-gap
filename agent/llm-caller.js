@@ -13,7 +13,7 @@ const CHAT_MODEL = 'openai/gpt-4o-mini';
  * @see {@link https://docs.slack.dev/tools/bolt-js/web#sending-streaming-messages}
  * @see {@link https://docs.github.com/en/rest/models/inference}
  */
-export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
+export async function callLLM(streamer, prompts, { channel, thread_ts, source } = {}) {
   const isFreshTurn = !prompts.some((p) => p.role === 'system');
   const latestUserMessage = [...prompts].reverse().find((p) => p.role === 'user');
 
@@ -23,6 +23,7 @@ export async function callLLM(streamer, prompts, { channel, thread_ts } = {}) {
     const { context, sources, hasResults } = await retrieveContext(latestUserMessage.content, {
       channel,
       thread_ts,
+      source,
     });
 
     const systemContent = hasResults
