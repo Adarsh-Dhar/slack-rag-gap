@@ -1,69 +1,138 @@
-import { getOpenAI } from './openai-client.js';
-import { logAnswer, retrieveContext } from './rag.js';
-import { isRetryableLLMError, withRetry } from './with-retry.js';
+import { OpenAI } from 'openai';
+import { rollDice, rollDiceDefinition } from './tools/dice.js';
 
-const CHAT_MODEL = 'openai/gpt-4o-mini';
+// GitHub Models LLM client
+const openai = new OpenAI({
+  baseURL: 'https://models.github.ai/inference',
+  apiKey: process.env.GITHUB_TOKEN,
+});
 
 /**
- * Stream a Chat Completions response, grounded in retrieved document context.
+ * Stream an LLM response to prompts with an example dice rolling function
  *
  * @param {import("@slack/web-api").ChatStreamer} streamer - Slack chat stream
- * @param {any[]} prompts - Chat Completions-style messages ({role, content})
+ * @param {any[]} prompts - OpenAI response messages
  *
  * @see {@link https://docs.slack.dev/tools/bolt-js/web#sending-streaming-messages}
  * @see {@link https://docs.github.com/en/rest/models/inference}
  */
-export async function callLLM(streamer, prompts, { channel, thread_ts, source } = {}) {
-  const isFreshTurn = !prompts.some((p) => p.role === 'system');
-  const latestUserMessage = [...prompts].reverse().find((p) => p.role === 'user');
+export async function callLLM(streamer, prompts) {
+  const toolCalls = new Map();
 
-  let _logAnswerArgs = null; // captured for post-stream logging
+  const response = await openai.chat.completions.create({
+    model: 'openai/gpt-4o-mini',
+    messages: prompts,
+    tools: [rollDiceDefinition],
+    tool_choice: 'auto',
+    stream: true,
+  });
 
-  if (isFreshTurn && latestUserMessage) {
-    const { context, sources, hasResults } = await retrieveContext(latestUserMessage.content, {
-      channel,
-      thread_ts,
-      source,
-    });
-
-    const systemContent = hasResults
-      ? `Answer only using the provided context. If the context doesn't fully answer the question, say so explicitly rather than guessing. Cite sources by name when relevant.\n\nContext:\n${context}\n\nSources: ${sources.join(', ')}`
-      : `No relevant documentation was found for this question. Tell the user you don't have documentation on this topic yet, rather than guessing an answer.`;
-
-    prompts.unshift({ role: 'system', content: systemContent });
-
-    // Store args — we'll call logAnswer after streaming so we have the actual answer text
-    _logAnswerArgs = { question: latestUserMessage.content, channel, thread_ts };
-  }
-
-  // Only retry stream *creation* — retrying mid-stream would duplicate
-  // tokens already sent to the user.
-  const stream = await withRetry(
-    () =>
-      getOpenAI().chat.completions.create({
-        model: CHAT_MODEL,
-        messages: prompts,
-        stream: true,
-      }),
-    { isRetryable: isRetryableLLMError, label: 'callLLM completion' },
-  );
-
-  let accumulatedText = ''; // collect answer text for logAnswer
-
-  for await (const chunk of stream) {
+  for await (const chunk of response) {
     const delta = chunk.choices?.[0]?.delta;
+    if (!delta) continue;
 
-    if (delta?.content) {
-      accumulatedText += delta.content;
-      await streamer.append({ markdown_text: delta.content });
+    // Stream markdown text from the LLM response as it arrives
+    if (delta.content) {
+      await streamer.append({
+        markdown_text: delta.content,
+      });
+    }
+
+    // Collect tool calls
+    if (delta.tool_calls) {
+      for (const toolCall of delta.tool_calls) {
+        const index = toolCall.index;
+
+        if (!toolCalls.has(index)) {
+          toolCalls.set(index, {
+            id: toolCall.id,
+            name: toolCall.function?.name || '',
+            arguments: '',
+          });
+
+          if (toolCall.function?.name === 'roll_dice') {
+            await streamer.append({
+              chunks: [
+                {
+                  type: 'task_update',
+                  id: toolCall.id,
+                  title: 'Processing dice roll...',
+                  status: 'in_progress',
+                },
+              ],
+            });
+          }
+        }
+
+        const existing = toolCalls.get(index);
+        if (toolCall.function?.arguments) {
+          existing.arguments += toolCall.function.arguments;
+        }
+        if (toolCall.id) {
+          existing.id = toolCall.id;
+        }
+        if (toolCall.function?.name) {
+          existing.name = toolCall.function.name;
+        }
+      }
     }
   }
 
-  // Log the actual answer text now that we have it
-  if (_logAnswerArgs) {
-    logAnswer(_logAnswerArgs.question, accumulatedText, {
-      channel: _logAnswerArgs.channel,
-      thread_ts: _logAnswerArgs.thread_ts,
-    });
+  // Perform tool calls and marks tasks as completed
+  if (toolCalls.size > 0) {
+    for (const [, call] of toolCalls) {
+      if (call.name === 'roll_dice') {
+        const args = JSON.parse(call.arguments);
+
+        prompts.push({
+          role: 'assistant',
+          tool_calls: [
+            {
+              id: call.id,
+              type: 'function',
+              function: {
+                name: 'roll_dice',
+                arguments: call.arguments,
+              },
+            },
+          ],
+        });
+
+        const result = rollDice(args);
+
+        prompts.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify(result),
+        });
+
+        if (result.error != null) {
+          await streamer.append({
+            chunks: [
+              {
+                type: 'task_update',
+                id: call.id,
+                title: result.error,
+                status: 'error',
+              },
+            ],
+          });
+        } else {
+          await streamer.append({
+            chunks: [
+              {
+                type: 'task_update',
+                id: call.id,
+                title: result.description ?? 'Completed',
+                status: 'complete',
+              },
+            ],
+          });
+        }
+      }
+    }
+
+    // complete the llm response after making tool calls
+    await callLLM(streamer, prompts);
   }
 }

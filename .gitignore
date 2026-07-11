@@ -2,14 +2,3 @@
 .DS_Store
 .env*
 !.env.sample
-chroma-data
-gaps.json
-query-log.jsonl
-resolved-gaps.json
-sme-history.json
-process-owners.json
-doc-owners.json
-failed-drafts.json
-.kiro
-*.lock
-*.tmp

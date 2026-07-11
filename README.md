@@ -154,4 +154,3 @@ Configures the new Slack Assistant features, providing a dedicated side panel UI
 The `llm-caller.js` file calls the OpenAI API and streams the generated response into a Slack conversation.
 
 The `tools` directory contains app-specific functions for the LLM to call.
-# slack-rag-gap

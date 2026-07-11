@@ -1,5 +1,5 @@
 {
-  "name": "my-rag-bot",
+  "name": "bolt-js-ai-agent-template",
   "version": "1.0.0",
   "description": "A template for building AI-enabled Slack apps",
   "type": "module",
@@ -7,13 +7,9 @@
   "scripts": {
     "check": "npx tsc --checkJs --noEmit --esModuleInterop --target esnext --module nodenext --moduleResolution nodenext app.js",
     "start": "node app.js",
-    "chroma": "chroma run --path ./chroma-data --port 8000 --host 0.0.0.0",
+    "ingest": "node agent/ingest.js",
     "lint": "npx @biomejs/biome check *.js agent/ listeners/",
-    "lint:fix": "npx @biomejs/biome check --write *.js agent/ listeners/",
-    "test": "node --test test/*.js",
-    "gap-detect": "node gap-detect.js",
-    "staleness-detect": "node staleness-detect.js",
-    "scheduler": "node scheduler.js"
+    "lint:fix": "npx @biomejs/biome check --write *.js agent/ listeners/"
   },
   "author": "Slack Technologies, LLC",
   "license": "MIT",
@@ -40,8 +36,6 @@
     "@biomejs/biome": "2.5.2",
     "@slack/cli-hooks": "^1.3.3",
     "@types/node": "^24.13.2",
-    "fast-check": "^4.8.0",
     "typescript": "^6.0.3"
-  },
-  "packageManager": "pnpm@9.10.0+sha1.216899f511c8dfde183c7cb50b69009c779534a8"
+  }
 }

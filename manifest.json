@@ -1,6 +1,7 @@
 {
+  "$schema": "https://raw.githubusercontent.com/slackapi/manifest-schema/main/manifest.schema.json",
   "display_information": {
-    "name": "my-rag-bot (local)"
+    "name": "Bolt JS AI Agent"
   },
   "features": {
     "app_home": {
@@ -8,49 +9,42 @@
       "messages_tab_enabled": true,
       "messages_tab_read_only_enabled": false
     },
-    "agent_view": {},
     "bot_user": {
-      "display_name": "my-rag-bot (local)",
+      "display_name": "Bolt JS AI Agent",
       "always_online": true
+    },
+    "assistant_view": {
+      "assistant_description": "An AI Agent built with Bolt for JavaScript, at your service!",
+      "suggested_prompts": []
     }
   },
   "oauth_config": {
     "scopes": {
       "bot": [
         "app_mentions:read",
+        "assistant:write",
         "channels:history",
         "channels:join",
-        "channels:read",
         "chat:write",
         "im:history",
-        "im:read",
-        "im:write",
-        "groups:history",
-        "groups:read",
-        "mpim:history",
-        "mpim:write",
-        "users:read",
-        "assistant:write"
+        "groups:history"
       ]
     }
   },
   "settings": {
-    "socket_mode_enabled": true,
-    "org_deploy_enabled": true,
-    "interactivity": {
-      "is_enabled": true
-    },
     "event_subscriptions": {
       "bot_events": [
         "app_mention",
-        "message.channels",
-        "message.groups",
-        "message.im",
-        "app_home_opened",
-        "app_context_changed"
+        "assistant_thread_context_changed",
+        "assistant_thread_started",
+        "message.im"
       ]
     },
-    "token_rotation_enabled": false,
-    "is_mcp_enabled": false
+    "interactivity": {
+      "is_enabled": false
+    },
+    "org_deploy_enabled": true,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
   }
 }
