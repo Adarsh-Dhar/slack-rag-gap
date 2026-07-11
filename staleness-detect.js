@@ -27,7 +27,7 @@ export const COOLDOWN_MS = 168 * 60 * 60 * 1000; // 7 days in milliseconds
 export function parseThreshold(envValue) {
   const parsed = parseFloat(envValue);
   if (!Number.isFinite(parsed)) {
-    log.info({ module: 'staleness-detect', envValue }, 'STALENESS_THRESHOLD not set or invalid — using default 0.3');
+    log.debug({ module: 'staleness-detect', envValue }, 'STALENESS_THRESHOLD not set or invalid — using default 0.3');
     return 0.3;
   }
   return parsed;
@@ -81,7 +81,7 @@ export async function main() {
 
   // Load doc-usage.json; exit cleanly if absent or empty
   if (!fs.existsSync(USAGE_PATH)) {
-    log.info({ module: 'staleness-detect' }, 'No usage data file found');
+    log.debug({ module: 'staleness-detect' }, 'No usage data file found');
     process.exit(0);
   }
 
@@ -89,12 +89,12 @@ export async function main() {
   try {
     usage = JSON.parse(fs.readFileSync(USAGE_PATH, 'utf-8'));
   } catch {
-    log.info({ module: 'staleness-detect' }, 'Could not parse usage data');
+    log.debug({ module: 'staleness-detect' }, 'Could not parse usage data');
     process.exit(0);
   }
 
   if (!usage || Object.keys(usage).length === 0) {
-    log.info({ module: 'staleness-detect' }, 'Usage data is empty');
+    log.debug({ module: 'staleness-detect' }, 'Usage data is empty');
     process.exit(0);
   }
 
@@ -132,7 +132,7 @@ export async function main() {
     });
 
     if (!reserved) {
-      log.info({ module: 'staleness-detect', doc: docName }, 'Within 7-day cooldown — skipping');
+      log.debug({ module: 'staleness-detect', doc: docName }, 'Within 7-day cooldown — skipping');
       continue;
     }
 
@@ -191,7 +191,7 @@ export async function main() {
       continue;
     }
 
-    log.info(
+    log.debug(
       { module: 'staleness-detect', doc: docName, ownerId, score: Number(stalenessScore.toFixed(2)) },
       'Notified owner about stale doc',
     );

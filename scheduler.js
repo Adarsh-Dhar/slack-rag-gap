@@ -22,18 +22,18 @@ const state = {
 async function runJob(name) {
   const job = state[name];
   if (job.running) {
-    log.info({ module: 'scheduler', job: name }, 'Job still running from previous tick — skipping');
+    log.debug({ module: 'scheduler', job: name }, 'Job still running from previous tick — skipping');
     return;
   }
 
   job.running = true;
   const startedAt = Date.now();
   resetRunSummary();
-  log.info({ module: 'scheduler', job: name }, 'Job starting');
+  log.debug({ module: 'scheduler', job: name }, 'Job starting');
   try {
     await job.fn();
     const summary = runSummary();
-    log.info({ module: 'scheduler', job: name, durationMs: Date.now() - startedAt, ...summary }, 'Job finished');
+    log.debug({ module: 'scheduler', job: name, durationMs: Date.now() - startedAt, ...summary }, 'Job finished');
   } catch (err) {
     // A failure in one job must never take down the scheduler or block the
     // other job — log and move on, next tick will try again.
@@ -58,14 +58,14 @@ async function tick() {
  * @returns {() => void} stop - call to cancel the schedule (e.g. on shutdown)
  */
 export function startScheduler() {
-  log.info({ module: 'scheduler', intervalMs: INTERVAL_MS }, 'Scheduler starting');
+  log.debug({ module: 'scheduler', intervalMs: INTERVAL_MS }, 'Scheduler starting');
 
   tick();
   const handle = setInterval(tick, INTERVAL_MS);
 
   return function stop() {
     clearInterval(handle);
-    log.info({ module: 'scheduler' }, 'Scheduler stopped');
+    log.debug({ module: 'scheduler' }, 'Scheduler stopped');
   };
 }
 

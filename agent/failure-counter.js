@@ -37,18 +37,6 @@ export function recordSuccess() {
   runTotals.succeeded++;
 }
 
-// ---------------------------------------------------------------------------
-// Dead-letter file — persistent record of failures across runs.
-//
-// Shape of each entry in failed-drafts.json:
-//   { cluster, error, channel?, thread_ts?, missingScope?, lastAttemptAt,
-//     consecutiveFailures }
-//
-// Keyed by `cluster` (the representative question text). If the same cluster
-// fails again, its consecutiveFailures counter increments; if it succeeds
-// (see pruneSuccess()), the entry is removed.
-// ---------------------------------------------------------------------------
-
 /**
  * Records a draft-processing failure. Appends (or increments) an entry
  * in the dead-letter JSON file AND bumps the in-memory failure counter.

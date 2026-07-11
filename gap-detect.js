@@ -177,7 +177,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
   // an already-resolved gap slug. Without this, the unresolved-ping path
   // below fires every scheduler cycle for gaps that already have a draft.
   if (clusterMatchesResolvedSlug(cluster.representative, resolvedSlugs)) {
-    log.info(
+    log.debug(
       { module: 'gap-detect', cluster: cluster.representative },
       'Skipping cluster — matches an already-resolved gap slug',
     );
@@ -245,7 +245,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
 
     // Skip drafts whose slug matches an already-resolved gap
     if (resolvedSlugs.has(draft.slug)) {
-      log.info({ module: 'gap-detect', slug: draft.slug }, 'Skipping already-resolved gap');
+      log.debug({ module: 'gap-detect', slug: draft.slug }, 'Skipping already-resolved gap');
       return;
     }
 
@@ -279,21 +279,21 @@ export async function main() {
   const queries = loadUnansweredQueries();
 
   if (queries.length === 0) {
-    log.info({ module: 'gap-detect' }, 'No unanswered queries in query-log.jsonl');
+    log.debug({ module: 'gap-detect' }, 'No unanswered queries in query-log.jsonl');
     return;
   }
 
-  log.info({ module: 'gap-detect', queryCount: queries.length }, 'Clustering unanswered queries');
+  log.debug({ module: 'gap-detect', queryCount: queries.length }, 'Clustering unanswered queries');
 
   const clusters = await clusterQuestions(queries);
   const ranked = rankClusters(clusters);
 
-  log.info(
+  log.debug(
     { module: 'gap-detect', clusterCount: ranked.length, collection: 'gap-clusters' },
     'Wrote gap clusters to Chroma',
   );
   for (const gap of ranked.slice(0, 10)) {
-    log.info(
+    log.debug(
       {
         module: 'gap-detect',
         hitCount: gap.hitCount,
@@ -304,7 +304,7 @@ export async function main() {
     );
   }
 
-  log.info({ module: 'gap-detect' }, 'Checking top gaps for resolved threads worth drafting');
+  log.debug({ module: 'gap-detect' }, 'Checking top gaps for resolved threads worth drafting');
   const resolvedSlugs = loadResolvedSlugs();
 
   // Single auth.test() call — reused by every tryDraftFromCluster invocation
@@ -312,7 +312,7 @@ export async function main() {
   try {
     const authInfo = await slack.auth.test();
     botUserId = authInfo.user_id;
-    log.info({ module: 'gap-detect', user: authInfo.user, team: authInfo.team }, 'Bot auth verified');
+    log.debug({ module: 'gap-detect', user: authInfo.user, team: authInfo.team }, 'Bot auth verified');
   } catch (error) {
     log.error({ module: 'gap-detect', err: error.message }, 'auth.test() failed — skipping draft checks');
     return;

@@ -88,7 +88,6 @@ export function parseProcessOwnerCommand(text) {
  * threadReplyCallback (events/thread_reply.js).
  */
 export const appMentionCallback = async ({ event, client, logger, say }) => {
-  log.debug({ module: 'app_mention', var: 'event', event }, 'RAW event object');
   log.info(
     {
       module: 'app_mention',
@@ -100,22 +99,14 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
   );
   try {
     const { channel, text, team, user } = event;
-    log.debug({ module: 'app_mention', var: 'channel', channel }, 'destructured');
-    log.debug({ module: 'app_mention', var: 'text', text }, 'destructured');
-    log.debug({ module: 'app_mention', var: 'team', team }, 'destructured');
-    log.debug({ module: 'app_mention', var: 'user', user }, 'destructured');
-
     const thread_ts = event.thread_ts || event.ts;
-    log.debug({ module: 'app_mention', var: 'thread_ts', thread_ts }, 'computed');
 
     // Strip the bot @mention prefix from the text for command parsing
     const cleanText = text.replace(/<@[A-Z0-9]+>\s*/, '').trim();
-    log.debug({ module: 'app_mention', var: 'cleanText', cleanText }, 'computed');
 
     // Process-owner commands are checked first — "who owns process X" would
     // otherwise be swallowed by the doc-owner "who owns" pattern below.
     const processOwnerCmd = parseProcessOwnerCommand(cleanText);
-    log.debug({ module: 'app_mention', var: 'processOwnerCmd', processOwnerCmd }, 'computed');
     if (processOwnerCmd) {
       if (processOwnerCmd.type === 'assign') {
         const result = assignProcessOwner(
@@ -124,34 +115,26 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
           user,
           processOwnerCmd.keywords,
         );
-        log.debug({ module: 'app_mention', var: 'result', result }, 'assignProcessOwner result');
         await say({ text: result.message, thread_ts });
         return;
       }
 
       if (processOwnerCmd.type === 'who') {
         const owners = loadProcessOwners();
-        log.debug({ module: 'app_mention', var: 'owners', owners }, 'loadProcessOwners result');
         const key = processOwnerCmd.topicName.trim().toLowerCase().replace(/\s+/g, '-');
-        log.debug({ module: 'app_mention', var: 'key', key }, 'computed');
         const entry = owners[key];
-        log.debug({ module: 'app_mention', var: 'entry', entry }, 'computed');
         const owner = entry?.owner;
-        log.debug({ module: 'app_mention', var: 'owner', owner }, 'computed');
         const response =
           owner && owner.startsWith('U')
             ? `The process owner for *${key}* is <@${owner}>.`
             : `*${key}* has no assigned process owner yet. Use \`assign process owner of ${processOwnerCmd.topicName} to @user\` to set one.`;
-        log.debug({ module: 'app_mention', var: 'response', response }, 'computed');
         await say({ text: response, thread_ts });
         return;
       }
 
       if (processOwnerCmd.type === 'list') {
         const owners = loadProcessOwners();
-        log.debug({ module: 'app_mention', var: 'owners', owners }, 'loadProcessOwners result');
         const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
-        log.debug({ module: 'app_mention', var: 'entries', entries }, 'computed');
         const response =
           entries.length > 0
             ? '*Process owners:*\n' +
@@ -162,55 +145,36 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
                 })
                 .join('\n')
             : 'No process owners have been tagged yet.';
-        log.debug({ module: 'app_mention', var: 'response', response }, 'computed');
         await say({ text: response, thread_ts });
         return;
       }
     }
 
     const ownerCmd = parseOwnerCommand(cleanText);
-    log.debug({ module: 'app_mention', var: 'ownerCmd', cleanText, ownerCmd }, 'computed');
 
     if (ownerCmd) {
-      log.debug(
-        {
-          module: 'app_mention',
-          eventUser: user,
-          appCreatorId: process.env.APP_CREATOR_ID,
-          isCreator: user === process.env.APP_CREATOR_ID,
-        },
-        'Owner cmd context',
-      );
       if (ownerCmd.type === 'assign') {
         const result = assignOwner(ownerCmd.docName, ownerCmd.newOwnerId, user);
-        log.debug({ module: 'app_mention', var: 'result', result }, 'assignOwner result');
         await say({ text: result.message, thread_ts });
         return;
       }
 
       if (ownerCmd.type === 'who') {
         const owners = loadDocOwners();
-        log.debug({ module: 'app_mention', var: 'owners', owners }, 'loadDocOwners result');
         const key = ownerCmd.docName.endsWith('.md') ? ownerCmd.docName : `${ownerCmd.docName}.md`;
-        log.debug({ module: 'app_mention', var: 'key', key }, 'computed');
         const entry = owners[key];
-        log.debug({ module: 'app_mention', var: 'entry', entry }, 'computed');
         const owner = entry?.owner;
-        log.debug({ module: 'app_mention', var: 'owner', owner }, 'computed');
         const response =
           owner && owner.startsWith('U')
             ? `The owner of *${key}* is <@${owner}>.`
             : `*${key}* has no assigned owner yet. Use \`assign owner of ${ownerCmd.docName} to @user\` to set one.`;
-        log.debug({ module: 'app_mention', var: 'response', response }, 'computed');
         await say({ text: response, thread_ts });
         return;
       }
 
       if (ownerCmd.type === 'list') {
         const owners = loadDocOwners();
-        log.debug({ module: 'app_mention', var: 'owners', owners }, 'loadDocOwners result');
         const entries = Object.entries(owners).filter(([k]) => !k.startsWith('_'));
-        log.debug({ module: 'app_mention', var: 'entries', entries }, 'computed');
         const response =
           entries.length > 0
             ? '*Document owners:*\n' +
@@ -221,7 +185,6 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
                 })
                 .join('\n')
             : 'No documents have been registered yet.';
-        log.debug({ module: 'app_mention', var: 'response', response }, 'computed');
         await say({ text: response, thread_ts });
         return;
       }
@@ -233,12 +196,9 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
     // we should still process it as a regular question.
     if (event.thread_ts) {
       const lastAnswer = getLastAnswerForThread(channel, event.thread_ts);
-      log.debug({ module: 'app_mention', var: 'lastAnswer', lastAnswer }, 'getLastAnswerForThread result');
       if (lastAnswer) {
-        log.info({ module: 'app_mention' }, 'Threaded reply detected in thread with existing answer — deferring to threadReplyCallback');
         return;
       }
-      log.info({ module: 'app_mention' }, 'Threaded mention in new thread — processing as fresh question');
     }
 
     try {
@@ -248,7 +208,6 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         recipient_user_id: user,
         thread_ts: thread_ts,
       });
-      log.debug({ module: 'app_mention', var: 'streamer', hasStreamer: !!streamer }, 'chatStream created');
 
       await callLLM(streamer, [{ role: 'user', content: text }], { channel, thread_ts, source: 'app_mention' });
       await streamer.stop();
@@ -256,7 +215,7 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
       // Fallback: if streaming fails (e.g. missing scope, API error), use
       // say() so the user still gets a response instead of silence.
       log.warn(
-        { module: 'app_mention', var: 'streamErr', err: streamErr.message, stack: streamErr.stack },
+        { module: 'app_mention', err: streamErr.message },
         'Streaming failed — falling back to say()',
       );
       const { retrieveContext } = await import('../../agent/rag.js');
@@ -269,14 +228,9 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
         thread_ts,
         source: 'app_mention_fallback',
       });
-      log.debug({ module: 'app_mention', var: 'context', context }, 'retrieveContext result');
-      log.debug({ module: 'app_mention', var: 'sources', sources }, 'retrieveContext result');
-      log.debug({ module: 'app_mention', var: 'hasResults', hasResults }, 'retrieveContext result');
-
       const systemContent = hasResults
         ? `Answer only using the provided context. If the context doesn't fully answer the question, say so explicitly rather than guessing. Cite sources by name when relevant.\n\nContext:\n${context}\n\nSources: ${sources.join(', ')}`
         : `No relevant documentation was found for this question. Tell the user you don't have documentation on this topic yet, rather than guessing an answer.`;
-      log.debug({ module: 'app_mention', var: 'systemContent', systemContent }, 'computed');
 
       const res = await withRetry(
         () =>
@@ -289,15 +243,13 @@ export const appMentionCallback = async ({ event, client, logger, say }) => {
           }),
         { isRetryable: isRetryableLLMError, label: 'app_mention fallback completion' },
       );
-      log.debug({ module: 'app_mention', var: 'res', res }, 'OpenAI completion result');
 
       const answer = res.choices[0].message.content;
-      log.debug({ module: 'app_mention', var: 'answer', answer }, 'computed');
       await say({ text: answer, thread_ts });
       logAnswer(text, answer, { channel, thread_ts });
     }
   } catch (e) {
-    log.error({ module: 'app_mention', var: 'e', err: e.stack ?? e }, 'App mention handler failed');
+    log.error({ module: 'app_mention', err: e.stack ?? e }, 'App mention handler failed');
     await say(`:warning: Something went wrong! (${e.message ?? e})`);
   }
 };
