@@ -1,13 +1,12 @@
 import { ChromaClient } from 'chromadb';
 import log from './logger.js';
 
-const chromaUrl = (process.env.CHROMA_URL ?? 'http://127.0.0.1:8000').replace('localhost', '127.0.0.1');
+const chromaUrl = process.env.CHROMA_URL ?? 'http://127.0.0.1:8000';
 const chromaHost = new URL(chromaUrl);
 const chroma = new ChromaClient({
   host: chromaHost.hostname,
-  port: parseInt(chromaUrl.split(':').pop()) || 8000,
+  port: parseInt(chromaHost.port) || 8000,
   ssl: chromaHost.protocol === 'https:',
-  auth: undefined,
 });
 
 const COLLECTION_NAME = 'gap-clusters';
