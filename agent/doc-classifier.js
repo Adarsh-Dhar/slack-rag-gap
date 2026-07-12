@@ -1,7 +1,7 @@
 import { getOpenAI } from './openai-client.js';
 import { isRetryableLLMError, withRetry } from './with-retry.js';
 
-const CHAT_MODEL = 'openai/gpt-4o-mini';
+const CHAT_MODEL = 'openai/gpt-4o';
 
 /**
  * Classifies a document into one of several doc_type categories based on

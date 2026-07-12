@@ -18,6 +18,7 @@ export function getOpenAI() {
     client = new OpenAI({
       apiKey: process.env.GITHUB_TOKEN,
       baseURL: 'https://models.github.ai/inference',
+      timeout: 30_000, // Increased to 30 seconds to accommodate GitHub API response times
     });
   }
   return client;

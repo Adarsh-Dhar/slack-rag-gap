@@ -3,7 +3,7 @@ import { getOpenAI } from './openai-client.js';
 import { logAnswer, logRetrievalTimeout, retrieveContext } from './rag.js';
 import { isRetryableLLMError, withRetry } from './with-retry.js';
 
-const CHAT_MODEL = 'openai/gpt-4o-mini';
+const CHAT_MODEL = 'openai/gpt-4o';
 
 /**
  * Stream a Chat Completions response, grounded in retrieved document context.

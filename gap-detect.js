@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config();
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,6 +23,24 @@ import { judgeResolution } from './agent/thread-resolver.js';
  * and shouldn't wait for the batch gap-detection cycle.
  */
 const INCIDENT_CHANNEL_PATTERNS = [/incident/i, /oncall/i, /on-call/i, /outage/i, /sev[12]/i];
+
+/**
+ * Wraps an async operation with a timeout to prevent indefinite hanging.
+ *
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} timeoutMs
+ * @param {string} operationName
+ * @returns {Promise<T>}
+ */
+async function withTimeout(promise, timeoutMs, operationName) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${operationName} timeout after ${timeoutMs}ms`)), timeoutMs)
+    ),
+  ]);
+}
 
 /**
  * Returns true if the channel name matches any incident-channel pattern.
@@ -128,10 +147,18 @@ function clusterMatchesResolvedSlug(representative, resolvedSlugs) {
  * loop computing cosineSimilarity() against every cluster seen so far.
  */
 async function clusterQuestions(queries) {
-  const collection = await resetClusters();
+  const collection = await withTimeout(resetClusters(), 10_000, 'resetClusters');
 
-  for (const entry of queries) {
-    const embedding = await embed(entry.question);
+  for (let i = 0; i < queries.length; i++) {
+    const entry = queries[i];
+    log.debug({ module: 'gap-detect', index: i, total: queries.length, question: entry.question.substring(0, 50) }, 'Embedding question');
+    let embedding;
+    try {
+      embedding = await withTimeout(embed(entry.question), 15_000, 'Embed question');
+    } catch (err) {
+      log.warn({ module: 'gap-detect', index: i, question: entry.question.substring(0, 50), err: err.message }, 'Skipping question due to embed failure');
+      continue;
+    }
 
     const newMember = {
       question: entry.question,
@@ -140,7 +167,7 @@ async function clusterQuestions(queries) {
       thread_ts: entry.thread_ts,
     };
 
-    const nearest = await findNearestCluster(collection, embedding);
+    const nearest = await withTimeout(findNearestCluster(collection, embedding), 10_000, 'findNearestCluster');
 
     if (nearest && nearest.similarity >= SIMILARITY_THRESHOLD) {
       const members = JSON.parse(nearest.metadata.membersJson);
@@ -150,25 +177,33 @@ async function clusterQuestions(queries) {
       const n = members.length;
       const centroid = nearest.centroidEmbedding.map((v, i) => (v * (n - 1) + embedding[i]) / n);
 
-      await upsertCluster(collection, nearest.id, centroid, {
-        representative: members[0].question,
-        membersJson: JSON.stringify(members),
-        hitCount: members.length,
-        lastSeen: newMember.timestamp,
-        channel: newMember.channel ?? '',
-      });
+      await withTimeout(
+        upsertCluster(collection, nearest.id, centroid, {
+          representative: members[0].question,
+          membersJson: JSON.stringify(members),
+          hitCount: members.length,
+          lastSeen: newMember.timestamp,
+          channel: newMember.channel ?? '',
+        }),
+        10_000,
+        'upsertCluster'
+      );
     } else {
-      await upsertCluster(collection, `cluster-${randomUUID()}`, embedding, {
-        representative: newMember.question,
-        membersJson: JSON.stringify([newMember]),
-        hitCount: 1,
-        lastSeen: newMember.timestamp,
-        channel: newMember.channel ?? '',
-      });
+      await withTimeout(
+        upsertCluster(collection, `cluster-${randomUUID()}`, embedding, {
+          representative: newMember.question,
+          membersJson: JSON.stringify([newMember]),
+          hitCount: 1,
+          lastSeen: newMember.timestamp,
+          channel: newMember.channel ?? '',
+        }),
+        10_000,
+        'upsertCluster'
+      );
     }
   }
 
-  return listClusters(collection);
+  return withTimeout(listClusters(collection), 10_000, 'listClusters');
 }
 
 /**
@@ -193,6 +228,29 @@ function rankClusters(clusters) {
 }
 
 /**
+ * Iterates through ranked gap clusters and attempts to generate drafts
+ * for those that meet the minimum hit count threshold.
+ *
+ * @param {import('./gap-detect.js').RankedCluster[]} ranked - ranked clusters from rankClusters()
+ * @param {WebClient} slack - Slack WebClient instance
+ */
+async function checkTopGapsForDrafts(ranked, slack) {
+  const botUserId = (await slack.auth.test())['user_id'];
+  const resolvedSlugs = loadResolvedSlugs();
+
+  for (const cluster of ranked) {
+    if (cluster.hitCount < MIN_HITS_FOR_DRAFT) {
+      log.debug(
+        { module: 'gap-detect', cluster: cluster.representative, hitCount: cluster.hitCount },
+        'Skipping cluster — below MIN_HITS_FOR_DRAFT',
+      );
+      continue;
+    }
+    await tryDraftFromCluster(cluster, resolvedSlugs, botUserId);
+  }
+}
+
+/**
  * For a gap cluster, find the most recent member with a real thread_ts,
  * pull the replies that came after the bot's answer, and see if a human
  * resolved it. If so, draft a stub and notify the stakeholder.
@@ -202,10 +260,15 @@ function rankClusters(clusters) {
  * @param {string} botUserId - cached bot user ID from a single auth.test() call
  */
 async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
+  log.debug({ module: 'gap-detect', cluster: cluster.representative }, 'Processing cluster - START');
+
   // Early exit: skip clusters whose representative question overlaps with
   // an already-resolved gap slug. Without this, the unresolved-ping path
   // below fires every scheduler cycle for gaps that already have a draft.
-  if (clusterMatchesResolvedSlug(cluster.representative, resolvedSlugs)) {
+  log.debug({ module: 'gap-detect', cluster: cluster.representative }, 'Checking resolved slug match');
+  const matchesResolved = clusterMatchesResolvedSlug(cluster.representative, resolvedSlugs);
+  log.debug({ module: 'gap-detect', cluster: cluster.representative, matchesResolved }, 'Resolved slug match check complete');
+  if (matchesResolved) {
     log.debug(
       { module: 'gap-detect', cluster: cluster.representative },
       'Skipping cluster — matches an already-resolved gap slug',
@@ -214,14 +277,22 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
   }
 
   const withThread = cluster.members.filter((m) => m.channel && m.thread_ts);
-  if (withThread.length === 0) return;
+  if (withThread.length === 0) {
+    log.debug({ module: 'gap-detect', cluster: cluster.representative }, 'Skipping cluster - no thread members');
+    return;
+  }
 
   const { channel, thread_ts } = withThread.at(-1);
+  log.debug({ module: 'gap-detect', cluster: cluster.representative, channel, thread_ts }, 'Got thread info');
 
   // Incident-channel bypass: if the channel looks like an incident
   // channel, route directly to the on-call person instead of drafting.
   try {
-    const channelInfo = await slack.conversations.info({ channel });
+    const channelInfo = await withTimeout(
+      slack.conversations.info({ channel }),
+      10_000,
+      'conversations.info'
+    );
     const channelName = channelInfo.channel?.name ?? '';
     const incidentAlreadyPinged = incidentPings.has(cluster.representative);
     if (isIncidentChannel(channelName) && !incidentAlreadyPinged) {
@@ -250,8 +321,13 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
 
   try {
     let messages;
+    log.debug({ module: 'gap-detect', cluster: cluster.representative }, 'Fetching thread replies');
     try {
-      const result = await slack.conversations.replies({ channel, ts: thread_ts });
+      const result = await withTimeout(
+        slack.conversations.replies({ channel, ts: thread_ts }),
+        10_000,
+        'conversations.replies'
+      );
       messages = result.messages;
     } catch (error) {
       if (error.data?.error === 'missing_scope') {
@@ -259,11 +335,15 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
           { module: 'gap-detect', channel, thread_ts, err: error.data?.error },
           'conversations.replies missing_scope — falling back to conversations.history',
         );
-        const historyResult = await slack.conversations.history({
-          channel,
-          oldest: thread_ts,
-          inclusive: true,
-        });
+        const historyResult = await withTimeout(
+          slack.conversations.history({
+            channel,
+            oldest: thread_ts,
+            inclusive: true,
+          }),
+          10_000,
+          'conversations.history'
+        );
         messages = historyResult.messages;
       } else {
         throw error;
@@ -274,15 +354,25 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
       .filter((m) => m.user && m.user !== botUserId && m.ts !== thread_ts)
       .map((m) => ({ user: m.user, text: m.text }));
 
-    const { resolved, resolvingText, resolvingUser } = await judgeResolution(cluster.representative, replies);
+    log.debug({ module: 'gap-detect', cluster: cluster.representative, replyCount: replies.length }, 'Calling judgeResolution');
+    const { resolved, resolvingText, resolvingUser } = await withTimeout(
+      judgeResolution(cluster.representative, replies),
+      30_000,
+      'judgeResolution LLM call'
+    );
+    log.debug({ module: 'gap-detect', cluster: cluster.representative, resolved }, 'judgeResolution completed');
 
     if (!resolved) {
       // Nobody has explained this yet, but the cluster is big enough to be
       // worth chasing — proactively ask, rather than waiting silently for
       // someone to volunteer. Re-runs each cycle will ping again as long as
       // it stays unresolved; there's no cooldown here by design.
-      const topicEmbedding = await embed(cluster.representative);
-      const { userId, reason } = await resolveOwner(topicEmbedding, cluster.representative);
+      const topicEmbedding = await withTimeout(embed(cluster.representative), 15_000, 'Embed for owner resolution');
+      const { userId, reason } = await withTimeout(
+        resolveOwner(topicEmbedding, cluster.representative),
+        30_000,
+        'resolveOwner'
+      );
       await pingForExplanation(
         slack,
         { question: cluster.representative, hitCount: cluster.hitCount, channel, thread_ts },
@@ -292,17 +382,25 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
       return;
     }
 
-    const topicEmbedding = await embed(cluster.representative);
+    const topicEmbedding = await withTimeout(embed(cluster.representative), 15_000, 'Embed for draft');
 
-    const { permalink } = await slack.chat.getPermalink({ channel, message_ts: thread_ts });
+    const { permalink } = await withTimeout(
+      slack.chat.getPermalink({ channel, message_ts: thread_ts }),
+      10_000,
+      'chat.getPermalink'
+    );
     const codeSnippets = extractCodeSnippets(resolvingText);
-    const draft = await draftStub({
-      question: cluster.representative,
-      resolvingText,
-      permalink,
-      hitCount: cluster.hitCount,
-      codeSnippets,
-    });
+    const draft = await withTimeout(
+      draftStub({
+        question: cluster.representative,
+        resolvingText,
+        permalink,
+        hitCount: cluster.hitCount,
+        codeSnippets,
+      }),
+      30_000,
+      'draftStub LLM call'
+    );
 
     // Skip drafts whose slug matches an already-resolved gap
     if (resolvedSlugs.has(draft.slug)) {
@@ -310,7 +408,11 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
       return;
     }
 
-    const { userId, reason } = await resolveOwner(topicEmbedding, cluster.representative);
+    const { userId, reason } = await withTimeout(
+      resolveOwner(topicEmbedding, cluster.representative),
+      20_000,
+      'resolveOwner'
+    );
     await notifyStakeholder(slack, { ...draft, permalink }, userId, reason);
     markResolved(draft.slug);
 
@@ -365,36 +467,8 @@ export async function main() {
     );
   }
 
-  log.debug({ module: 'gap-detect' }, 'Checking top gaps for resolved threads worth drafting');
-  const resolvedSlugs = loadResolvedSlugs();
-
-  // Single auth.test() call — reused by every tryDraftFromCluster invocation
-  let botUserId;
-  try {
-    const authInfo = await slack.auth.test();
-    botUserId = authInfo.user_id;
-    log.debug({ module: 'gap-detect', user: authInfo.user, team: authInfo.team }, 'Bot auth verified');
-  } catch (error) {
-    log.error({ module: 'gap-detect', err: error.message }, 'auth.test() failed — skipping draft checks');
-    return;
-  }
-
-  for (const cluster of ranked.slice(0, 10)) {
-    if (cluster.hitCount < MIN_HITS_FOR_DRAFT) continue;
-    try {
-      await tryDraftFromCluster(cluster, resolvedSlugs, botUserId);
-    } catch (e) {
-      log.error(
-        { module: 'gap-detect', cluster: cluster.representative, err: String(e) },
-        'Outer cluster processing failure',
-      );
-      recordFailure(FAILED_DRAFTS_PATH, {
-        cluster: cluster.representative,
-        error: String(e),
-        lastAttemptAt: new Date().toISOString(),
-      });
-    }
-  }
+  await checkTopGapsForDrafts(ranked, slack);
+  log.debug({ module: 'gap-detect' }, 'main() completed');
 }
 
 // Only run main() when this file is executed directly, not when imported by

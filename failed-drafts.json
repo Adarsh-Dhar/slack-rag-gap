@@ -1,0 +1,22 @@
+{
+  "<@U0BGTKB78GL> How does the notification service decide which Slack channel to post user mentions in?": {
+    "cluster": "<@U0BGTKB78GL> How does the notification service decide which Slack channel to post user mentions in?",
+    "error": "resolveOwner timeout after 30000ms",
+    "channel": "C0BF8AEMVL7",
+    "thread_ts": "1783862367.720669",
+    "missingScope": false,
+    "lastAttemptAt": "2026-07-12T14:04:35.816Z",
+    "consecutiveFailures": 7,
+    "firstSeenAt": "2026-07-12T12:11:52.229Z"
+  },
+  "<@U0BGTKB78GL> How does notifications pick the right channel when someone gets @mentioned?": {
+    "cluster": "<@U0BGTKB78GL> How does notifications pick the right channel when someone gets @mentioned?",
+    "error": "Embed for owner resolution timeout after 15000ms",
+    "channel": "C0BF8AEMVL7",
+    "thread_ts": "1783855932.921999",
+    "missingScope": false,
+    "lastAttemptAt": "2026-07-12T14:01:17.714Z",
+    "consecutiveFailures": 4,
+    "firstSeenAt": "2026-07-12T12:29:47.485Z"
+  }
+}

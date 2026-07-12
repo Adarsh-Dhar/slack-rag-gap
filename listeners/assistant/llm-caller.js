@@ -7,7 +7,7 @@ const client = new OpenAI({
 
 export async function callLLM(messages) {
   const response = await client.chat.completions.create({
-    model: 'openai/gpt-4o-mini', // GitHub Models namespaced ID
+    model: 'openai/gpt-4o', // GitHub Models namespaced ID
     messages,
     temperature: 0.7,
     max_tokens: 1000,

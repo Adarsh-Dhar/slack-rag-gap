@@ -7,7 +7,7 @@ import log from './agent/logger.js';
 import { getOpenAI } from './agent/openai-client.js';
 import { isRetryableLLMError, withRetry } from './agent/with-retry.js';
 
-const CHAT_MODEL = 'openai/gpt-4o-mini';
+const CHAT_MODEL = 'openai/gpt-4o';
 const DOCS_DIR = path.join(process.cwd(), 'docs');
 const REPORT_PATH = path.join(process.cwd(), 'command-validity-report.json');
 const REPO_OWNER = process.env.GITHUB_REPO_OWNER || 'Adarsh-Dhar';

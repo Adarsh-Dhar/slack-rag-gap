@@ -1,7 +1,7 @@
 {
-  "checkedAt": "2026-07-12T10:46:32.706Z",
+  "checkedAt": "2026-07-12T11:16:32.393Z",
   "total": 3,
-  "totalInvalid": 1,
+  "totalInvalid": 0,
   "docs": [
     {
       "doc": "checkout-service.md",
@@ -14,11 +14,11 @@
       "commands": [
         {
           "command": "deploy rollback <service>",
-          "valid": false,
-          "issue": "Placeholder '<service>' not replaced with an actual service name."
+          "valid": true,
+          "issue": null
         }
       ],
-      "invalidCount": 1,
+      "invalidCount": 0,
       "missingTokens": []
     },
     {

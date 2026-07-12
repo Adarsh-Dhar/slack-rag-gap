@@ -1,4 +1,5 @@
 import { getOpenAI } from './openai-client.js';
+import { withRetry, isRetryableLLMError } from './with-retry.js';
 
 // Same client/model as agent/rag.js, ingest.js, and gap-detect.js — one place
 // so routing logic (sme-router.js) and gap clustering (gap-detect.js) don't
@@ -7,8 +8,13 @@ import { getOpenAI } from './openai-client.js';
 export const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
 export async function embed(text) {
-  const res = await getOpenAI().embeddings.create({ model: EMBEDDING_MODEL, input: text });
-  return res.data[0].embedding;
+  return withRetry(
+    async () => {
+      const res = await getOpenAI().embeddings.create({ model: EMBEDDING_MODEL, input: text });
+      return res.data[0].embedding;
+    },
+    { retries: 3, baseDelayMs: 500, isRetryable: isRetryableLLMError, label: 'embed' },
+  );
 }
 
 export function cosineSimilarity(a, b) {

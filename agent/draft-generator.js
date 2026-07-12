@@ -4,7 +4,7 @@ import { classifyDoc } from './doc-classifier.js';
 import { getOpenAI } from './openai-client.js';
 import { isRetryableLLMError, withRetry } from './with-retry.js';
 
-const CHAT_MODEL = 'openai/gpt-4o-mini';
+const CHAT_MODEL = 'openai/gpt-4o';
 const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');
 const DOCS_DIR = path.join(process.cwd(), 'docs');
 

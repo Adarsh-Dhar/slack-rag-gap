@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import log from './logger.js';
 import { withFileLockSync, writeJSONAtomic } from './store.js';
+import { withRetry, isRetryableSlackError } from './with-retry.js';
 
 const DOC_OWNERS_PATH = path.join(process.cwd(), 'doc-owners.json');
 
@@ -31,19 +32,22 @@ export function setCoveredPaths(paths) {
  * @returns {Promise<boolean>}
  */
 export async function checkOwnerLiveness(userId) {
-  try {
-    const { WebClient } = await import('@slack/web-api');
-    const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
-    const result = await slack.users.info({ user: userId });
-    return !result.user.deleted;
-  } catch (err) {
+  return withRetry(
+    async () => {
+      const { WebClient } = await import('@slack/web-api');
+      const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+      const result = await slack.users.info({ user: userId });
+      return !result.user.deleted;
+    },
+    { retries: 3, baseDelayMs: 500, isRetryable: isRetryableSlackError, label: 'checkOwnerLiveness' }
+  ).catch((err) => {
     // If the API call fails (missing scope, network error, rate limit),
     // assume the owner is still active rather than silently discarding
     // every tagged-owner match. Only a confirmed `deleted: true` response
     // should remove someone. Log the error so the root cause is visible.
     log.warn({ module: 'doc-owners', userId, err: err.message ?? err }, 'Liveness check failed — assuming alive');
     return true;
-  }
+  });
 }
 
 /**

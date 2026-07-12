@@ -1,4 +1,5 @@
 import log from './logger.js';
+import { withRetry } from './with-retry.js';
 
 const GITHUB_API = 'https://api.github.com';
 
@@ -25,13 +26,18 @@ function getHeaders() {
  * @returns {Promise<any>}
  */
 export async function githubFetch(url, init = {}) {
-  const res = await fetch(url, { ...init, headers: { ...getHeaders(), ...init.headers } });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`GitHub API ${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
-  }
-  if (res.status === 204) return null;
-  return res.json();
+  return withRetry(
+    async () => {
+      const res = await fetch(url, { ...init, headers: { ...getHeaders(), ...init.headers } });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`GitHub API ${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
+      }
+      if (res.status === 204) return null;
+      return res.json();
+    },
+    { retries: 3, baseDelayMs: 500, isRetryable: (err) => err?.status === 429 || (typeof err?.status === 'number' && err.status >= 500), label: 'githubFetch' }
+  );
 }
 
 /**

@@ -3,7 +3,7 @@ import { getOpenAI } from './openai-client.js';
 import { updateUsageLedger } from './usage-ledger.js';
 import { isRetryableLLMError, withRetry } from './with-retry.js';
 
-const CHAT_MODEL = 'openai/gpt-4o-mini';
+const CHAT_MODEL = 'openai/gpt-4o';
 
 /**
  * Given the original gap question and the replies that followed it in the
