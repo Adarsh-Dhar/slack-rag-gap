@@ -137,6 +137,30 @@ export async function retrieveContext(question, { channel, thread_ts, source } =
 }
 
 /**
+ * Logs a question as an unanswered gap when retrieval never completed in
+ * time (see the RAG timeout race in llm-caller.js). retrieveContext() may
+ * still be running in the background and could log its own entry later if
+ * it eventually resolves, but we can't wait for that — the gap-detection
+ * pipeline needs a hasResults:false entry now, not whenever (or if) that
+ * background call finishes.
+ *
+ * @param {string} question
+ * @param {{channel?: string, thread_ts?: string}} meta
+ */
+export function logRetrievalTimeout(question, { channel, thread_ts } = {}) {
+  logQuery({
+    question,
+    topScore: null,
+    hasResults: false,
+    sources: [],
+    channel,
+    thread_ts,
+    timestamp: new Date().toISOString(),
+    retrievalError: 'RAG timeout',
+  });
+}
+
+/**
  * Records the final generated answer against its logged query so Phase 2
  * (gap detection) has the full question -> answer -> confidence chain.
  * Also used by threadReplyCallback to supply the bot's answer text to

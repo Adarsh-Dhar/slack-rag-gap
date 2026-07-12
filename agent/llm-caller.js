@@ -1,6 +1,6 @@
 import log from './logger.js';
 import { getOpenAI } from './openai-client.js';
-import { logAnswer, retrieveContext } from './rag.js';
+import { logAnswer, logRetrievalTimeout, retrieveContext } from './rag.js';
 import { isRetryableLLMError, withRetry } from './with-retry.js';
 
 const CHAT_MODEL = 'openai/gpt-4o-mini';
@@ -24,7 +24,7 @@ export async function callLLM(streamer, prompts, { channel, thread_ts, source } 
     try {
       const { context, sources, hasResults } = await Promise.race([
         retrieveContext(latestUserMessage.content, { channel, thread_ts, source }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('RAG timeout')), 5000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('RAG timeout')), 10_000)),
       ]);
 
       const systemContent = hasResults
@@ -34,6 +34,17 @@ export async function callLLM(streamer, prompts, { channel, thread_ts, source } 
       prompts.unshift({ role: 'system', content: systemContent });
     } catch (err) {
       log.warn({ module: 'llm-caller', err: err.message }, 'RAG failed, proceeding without context');
+
+      // Treat "retrieval never finished" the same as "retrieval found
+      // nothing" on both fronts: log it as a gap so gap-detect.js can see
+      // this question (retrieveContext's own logging call may be stuck in
+      // the background and never fire), and tell the LLM not to guess,
+      // the same instruction it would get on a genuine no-match.
+      logRetrievalTimeout(latestUserMessage.content, { channel, thread_ts });
+      prompts.unshift({
+        role: 'system',
+        content: `No relevant documentation was found for this question. Tell the user you don't have documentation on this topic yet, rather than guessing an answer.`,
+      });
     }
 
     _logAnswerArgs = { question: latestUserMessage.content, channel, thread_ts };

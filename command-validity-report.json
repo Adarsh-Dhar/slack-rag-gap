@@ -1,0 +1,31 @@
+{
+  "checkedAt": "2026-07-12T10:46:32.706Z",
+  "total": 3,
+  "totalInvalid": 1,
+  "docs": [
+    {
+      "doc": "checkout-service.md",
+      "commands": [],
+      "invalidCount": 0,
+      "missingTokens": []
+    },
+    {
+      "doc": "deploy-process.md",
+      "commands": [
+        {
+          "command": "deploy rollback <service>",
+          "valid": false,
+          "issue": "Placeholder '<service>' not replaced with an actual service name."
+        }
+      ],
+      "invalidCount": 1,
+      "missingTokens": []
+    },
+    {
+      "doc": "payments-runbook.md",
+      "commands": [],
+      "invalidCount": 0,
+      "missingTokens": []
+    }
+  ]
+}
