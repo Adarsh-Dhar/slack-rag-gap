@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { cosineSimilarity, embed } from './embeddings.js';
 
 const PROCESS_OWNERS_PATH = path.join(process.cwd(), 'process-owners.json');

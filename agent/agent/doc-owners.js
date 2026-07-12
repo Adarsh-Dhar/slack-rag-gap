@@ -1,8 +1,82 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
+import log from './logger.js';
 import { withFileLockSync, writeJSONAtomic } from './store.js';
 
 const DOC_OWNERS_PATH = path.join(process.cwd(), 'doc-owners.json');
+
+/**
+ * In-memory cache of covered paths, populated by setCoveredPaths() and
+ * used by clearDepartedOwners() to know which doc paths are "covered"
+ * (i.e. have owners) vs. orphaned.
+ */
+let _coveredPaths = new Set();
+
+/**
+ * Sets the in-memory cache of paths that currently have owners.
+ * Called once at startup (e.g. from app.js) so clearDepartedOwners()
+ * can compare against it.
+ *
+ * @param {string[]} paths
+ */
+export function setCoveredPaths(paths) {
+  _coveredPaths = new Set(paths);
+}
+
+/**
+ * Checks whether a Slack user is still alive (account exists and
+ * hasn't been deactivated). Returns true if the user is active.
+ *
+ * @param {string} userId
+ * @returns {Promise<boolean>}
+ */
+export async function checkOwnerLiveness(userId) {
+  try {
+    const { WebClient } = await import('@slack/web-api');
+    const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+    const result = await slack.users.info({ user: userId });
+    return !result.user.deleted;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Removes entries from doc-owners.json whose owners are no longer
+ * active Slack users (deleted/deactivated accounts). This prevents
+ * stale owners from blocking gap drafts and staleness notifications.
+ *
+ * Returns the list of removed doc keys.
+ *
+ * @returns {Promise<string[]>}
+ */
+export async function clearDepartedOwners() {
+  const owners = loadDocOwners();
+  const removed = [];
+
+  for (const [docName, entry] of Object.entries(owners)) {
+    const userId = entry.owner;
+    if (!userId?.startsWith('U')) continue;
+
+    const alive = await checkOwnerLiveness(userId);
+    if (!alive) {
+      removed.push(docName);
+      log.warn({ module: 'doc-owners', doc: docName, userId }, 'Removing departed owner');
+    }
+  }
+
+  if (removed.length === 0) return removed;
+
+  withFileLockSync(DOC_OWNERS_PATH, () => {
+    const fresh = loadDocOwners();
+    for (const doc of removed) {
+      delete fresh[doc];
+    }
+    writeJSONAtomic(DOC_OWNERS_PATH, fresh);
+  });
+
+  return removed;
+}
 
 /**
  * Loads and parses the doc-owners.json file. Returns an empty object
@@ -55,7 +129,7 @@ export function canChangeOwnership(docName, requesterId) {
   const currentOwner = owners[docName]?.owner;
 
   // If there's no real owner yet, only the app creator can assign
-  if (!currentOwner || !currentOwner.startsWith('U')) {
+  if (!currentOwner?.startsWith('U')) {
     return {
       allowed: false,
       reason: 'This document has no owner yet. Only the app creator can make the initial assignment.',
@@ -101,7 +175,7 @@ export function assignOwner(docName, newOwnerId, requesterId) {
 
     saveDocOwners(owners);
 
-    const action = previousOwner && previousOwner.startsWith('U') ? 'transferred' : 'assigned';
+    const action = previousOwner?.startsWith('U') ? 'transferred' : 'assigned';
     return {
       success: true,
       message: `Ownership of *${key}* ${action} successfully.`,

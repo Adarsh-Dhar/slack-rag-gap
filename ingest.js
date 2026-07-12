@@ -1,7 +1,7 @@
 import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
 import { ChromaClient } from 'chromadb';
-import fs from 'fs';
-import path from 'path';
 import { embed } from './agent/embeddings.js';
 import log from './agent/logger.js';
 
@@ -9,7 +9,7 @@ const chromaUrl = (process.env.CHROMA_URL ?? 'http://127.0.0.1:8000').replace('l
 const chromaHost = new URL(chromaUrl);
 const chroma = new ChromaClient({
   host: chromaHost.hostname,
-  port: parseInt(chromaUrl.split(':').pop()) || 8000,
+  port: parseInt(chromaUrl.split(':').pop(), 10) || 8000,
   ssl: chromaHost.protocol === 'https:',
   auth: undefined,
 });

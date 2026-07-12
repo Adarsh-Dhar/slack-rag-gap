@@ -1,7 +1,8 @@
 import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
 import { WebClient } from '@slack/web-api';
-import fs from 'fs';
-import path from 'path';
+import { checkFileStaleness } from './agent/code-staleness.js';
 import log from './agent/logger.js';
 import { notifyStakeholder } from './agent/notify-stakeholder.js';
 import { readJSON, withFileLockSync, writeJSONAtomic } from './agent/store.js';
@@ -16,6 +17,33 @@ const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');
 const DOCS_DIR = path.join(process.cwd(), 'docs');
 
 export const COOLDOWN_MS = 168 * 60 * 60 * 1000; // 7 days in milliseconds
+
+/**
+ * Doc-type-aware staleness threshold multipliers. Each doc_type from the
+ * frontmatter gets a multiplier applied to the base STALENESS_THRESHOLD.
+ * Lower multiplier = more lenient (needs more corrections to trigger).
+ * Higher multiplier = more aggressive (triggers sooner).
+ *
+ * Runbooks and API docs are mission-critical and should be checked more
+ * aggressively. Design docs and onboarding materials can be more lenient.
+ */
+const DOC_TYPE_MULTIPLIERS = {
+  runbook: 0.7, // More aggressive — operational docs must be accurate
+  api: 0.7, // More aggressive — API docs must match reality
+  policy: 0.8, // Slightly more aggressive — policies must be current
+  design: 1.2, // More lenient — design docs can age gracefully
+  onboarding: 1.1, // Slightly more lenient — onboarding evolves slowly
+  reference: 1.0, // Default
+  other: 1.0, // Default
+};
+
+/**
+ * Code-stale bypass: if the underlying code file hasn't been modified
+ * in the repo within this many days, the doc is considered stale
+ * regardless of usage metrics. This catches docs that reference code
+ * that has moved or changed.
+ */
+const CODE_STALE_DAYS = parseInt(process.env.CODE_STALE_DAYS, 10) || 90;
 
 /**
  * Parses the STALENESS_THRESHOLD environment variable.
@@ -77,7 +105,7 @@ export async function main() {
   // Slack commands (or manual edits) are picked up without a restart.
   const docOwners = fs.existsSync(docOwnersPath) ? JSON.parse(fs.readFileSync(docOwnersPath, 'utf-8')) : {};
 
-  const STALENESS_THRESHOLD = parseThreshold(process.env.STALENESS_THRESHOLD);
+  const BASE_STALENESS_THRESHOLD = parseThreshold(process.env.STALENESS_THRESHOLD);
 
   // Load doc-usage.json; exit cleanly if absent or empty
   if (!fs.existsSync(USAGE_PATH)) {
@@ -105,8 +133,37 @@ export async function main() {
 
     const stalenessScore = computeStalenessScore({ citedCount, followUpCount, correctionCount });
 
-    // Skip docs below or at threshold
-    if (stalenessScore <= STALENESS_THRESHOLD) continue;
+    // Determine doc_type from frontmatter if available
+    let doc_type = 'other';
+    try {
+      const docPath = path.join(DOCS_DIR, docName);
+      if (fs.existsSync(docPath)) {
+        const content = fs.readFileSync(docPath, 'utf-8');
+        const docTypeMatch = content.match(/^---\s*\ndoc_type:\s*(.+)/m);
+        if (docTypeMatch) doc_type = docTypeMatch[1].trim();
+      }
+    } catch {
+      // Non-critical — default to 'other'
+    }
+
+    // Apply doc-type-aware threshold
+    const typeMultiplier = DOC_TYPE_MULTIPLIERS[doc_type] ?? 1.0;
+    const STALENESS_THRESHOLD = BASE_STALENESS_THRESHOLD * typeMultiplier;
+
+    // Code-stale bypass: if the underlying code file hasn't been updated
+    // within CODE_STALE_DAYS, consider the doc stale regardless of usage
+    let codeStale = false;
+    try {
+      const codeFile = docName.replace(/\.md$/, '.js'); // Heuristic: docs/foo.md -> docs/foo.js
+      const codePath = `docs/${codeFile}`;
+      const codeStaleness = await checkFileStaleness(codePath, { staleDays: CODE_STALE_DAYS });
+      codeStale = codeStaleness.stale;
+    } catch {
+      // Non-critical — if we can't check code staleness, fall back to usage-only
+    }
+
+    // Skip docs below or at threshold (unless code is stale)
+    if (stalenessScore <= STALENESS_THRESHOLD && !codeStale) continue;
 
     // Look up doc owner; warn and skip if not found
     if (!docOwners[docName] || docOwners[docName].owner === undefined) {

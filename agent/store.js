@@ -1,4 +1,4 @@
-import fs from 'fs';
+import fs from 'node:fs';
 
 // If a lock directory is older than this, assume its holder crashed while
 // holding it (process killed, etc.) and steal the lock rather than wait

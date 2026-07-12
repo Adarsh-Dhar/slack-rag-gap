@@ -1,6 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { ChromaClient } from 'chromadb';
-import fs from 'fs';
-import path from 'path';
 import { embed } from './embeddings.js';
 import log from './logger.js';
 import { updateUsageLedger } from './usage-ledger.js';
@@ -9,7 +9,7 @@ const chromaUrl = process.env.CHROMA_URL ?? 'http://127.0.0.1:8000';
 const chromaHost = new URL(chromaUrl);
 const chroma = new ChromaClient({
   host: chromaHost.hostname,
-  port: parseInt(chromaHost.port) || 8000,
+  port: parseInt(chromaHost.port, 10) || 8000,
   ssl: chromaHost.protocol === 'https:',
 });
 const COLLECTION_NAME = 'docs';
@@ -40,7 +40,7 @@ const LOG_PATH = path.join(process.cwd(), 'query-log.jsonl');
 const RELEVANCE_THRESHOLD = 1.8;
 
 function logQuery(entry) {
-  fs.appendFileSync(LOG_PATH, JSON.stringify(entry) + '\n');
+  fs.appendFileSync(LOG_PATH, `${JSON.stringify(entry)}\n`);
 }
 
 /**

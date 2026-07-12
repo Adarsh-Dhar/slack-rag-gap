@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { cosineSimilarity, recencyWeight } from './embeddings.js';
 import { readJSON, withFileLockSync, writeJSONAtomic } from './store.js';
 import { matchDocOwner, matchProcessOwner } from './topic-owner.js';

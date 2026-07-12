@@ -1,15 +1,15 @@
 import 'dotenv/config';
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { ChromaClient } from 'chromadb';
-import { getOpenAI } from './agent/openai-client.js';
 import log from './agent/logger.js';
+import { getOpenAI } from './agent/openai-client.js';
 
 const chromaUrl = process.env.CHROMA_URL ?? 'http://127.0.0.1:8000';
 const chromaHost = new URL(chromaUrl);
 const chroma = new ChromaClient({
   host: chromaHost.hostname,
-  port: parseInt(chromaHost.port) || 8000,
+  port: parseInt(chromaHost.port, 10) || 8000,
   ssl: chromaHost.protocol === 'https:',
 });
 
@@ -35,12 +35,12 @@ function chunkText(text, maxTokens = CHUNK_SIZE) {
   let current = '';
 
   for (const para of paragraphs) {
-    if ((current + '\n\n' + para).length > maxTokens * 4) {
+    if (`${current}\n\n${para}`.length > maxTokens * 4) {
       // Rough token estimate: ~4 chars per token
       if (current) chunks.push(current.trim());
       current = para;
     } else {
-      current = current ? current + '\n\n' + para : para;
+      current = current ? `${current}\n\n${para}` : para;
     }
   }
   if (current.trim()) chunks.push(current.trim());
@@ -51,7 +51,7 @@ function chunkText(text, maxTokens = CHUNK_SIZE) {
   for (let i = 1; i < chunks.length; i++) {
     const prev = chunks[i - 1];
     const overlap = prev.slice(-CHUNK_OVERLAP * 4); // ~4 chars per token
-    overlapped.push(overlap + '\n\n' + chunks[i]);
+    overlapped.push(`${overlap}\n\n${chunks[i]}`);
   }
   return overlapped;
 }
@@ -59,7 +59,7 @@ function chunkText(text, maxTokens = CHUNK_SIZE) {
 async function ingest() {
   log.info({ module: 'ingest', docsDir: DOCS_DIR }, 'Starting ingestion');
 
-  const collection = await chroma.getOrCreateCollection({
+  const _collection = await chroma.getOrCreateCollection({
     name: COLLECTION_NAME,
     embeddingFunction: noopEmbeddingFunction,
   });
@@ -94,7 +94,7 @@ async function ingest() {
 
     const ids = chunks.map((_, i) => `${file}-${i}`);
     const embeddings = res.data.map((d) => d.embedding);
-    const metadatas = chunks.map((chunk, i) => ({
+    const metadatas = chunks.map((_chunk, i) => ({
       source: file,
       chunkIndex: i,
       totalChunks: chunks.length,

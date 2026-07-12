@@ -6,11 +6,11 @@ const client = new WebClient(process.env.SLACK_BOT_TOKEN);
 async function joinChannel(channelId) {
   try {
     console.log(`Attempting to join channel ${channelId}...`);
-    
+
     const result = await client.conversations.join({
       channel: channelId,
     });
-    
+
     console.log('✓ Successfully joined channel!');
     console.log('  Channel name:', result.channel.name);
     console.log('  Channel ID:', result.channel.id);

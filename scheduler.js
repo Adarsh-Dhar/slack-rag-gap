@@ -1,7 +1,10 @@
 import 'dotenv/config';
 import { resetRunSummary, runSummary } from './agent/failure-counter.js';
 import log from './agent/logger.js';
+import { main as runCodeStalenessDetect } from './code-staleness-detect.js';
+import { main as runCommandValidityCheck } from './command-validity-check.js';
 import { main as runGapDetect } from './gap-detect.js';
+import { main as runOwnerLivenessCheck } from './owner-liveness-check.js';
 import { main as runStalenessDetect } from './staleness-detect.js';
 
 // How often to run the batch jobs, in milliseconds. Defaults to 60s for
@@ -11,12 +14,21 @@ import { main as runStalenessDetect } from './staleness-detect.js';
 // that fast.
 const INTERVAL_MS = parseInt(process.env.SCHEDULER_INTERVAL_MS, 10) || 60_000;
 
+// Low-frequency jobs run every LOW_FREQ_MULTIPLIER ticks of the main interval.
+// E.g. if INTERVAL_MS=60s and LOW_FREQ_MULTIPLIER=30, low-freq jobs run every
+// 30 minutes — enough to catch stale docs or departed owners without burning
+// API quota on every cycle.
+const LOW_FREQ_MULTIPLIER = parseInt(process.env.LOW_FREQ_MULTIPLIER, 10) || 30;
+
 // Per-job "already running" flags. If a tick fires while the previous run
 // of that same job is still in flight (e.g. a slow Slack/LLM call), the new
 // tick is skipped rather than stacking concurrent runs on top of each other.
 const state = {
   'gap-detect': { running: false, fn: runGapDetect },
   'staleness-detect': { running: false, fn: runStalenessDetect },
+  'code-staleness-detect': { running: false, fn: runCodeStalenessDetect, lowFreq: true },
+  'command-validity-check': { running: false, fn: runCommandValidityCheck, lowFreq: true },
+  'owner-liveness-check': { running: false, fn: runOwnerLivenessCheck, lowFreq: true },
 };
 
 async function runJob(name) {
@@ -43,11 +55,22 @@ async function runJob(name) {
   }
 }
 
+let tickCount = 0;
+
 async function tick() {
-  // Run sequentially: both jobs hit the same Slack/LLM/Chroma resources,
-  // and staleness-detect's DMs are lower priority than fresh gap drafts.
+  tickCount++;
+
+  // Run high-frequency jobs every tick
   await runJob('gap-detect');
   await runJob('staleness-detect');
+
+  // Run low-frequency jobs every LOW_FREQ_MULTIPLIER ticks
+  if (tickCount % LOW_FREQ_MULTIPLIER === 0) {
+    log.debug({ module: 'scheduler', tickCount, lowFreqMultiplier: LOW_FREQ_MULTIPLIER }, 'Running low-frequency jobs');
+    await runJob('code-staleness-detect');
+    await runJob('command-validity-check');
+    await runJob('owner-liveness-check');
+  }
 }
 
 /**

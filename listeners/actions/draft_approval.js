@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { readJSON, withFileLockSync, writeJSONAtomic } from '../../agent/store.js';
 import { ingestText } from '../../ingest.js';
 

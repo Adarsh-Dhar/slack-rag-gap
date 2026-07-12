@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { withFileLockSync, writeJSONAtomic } from './store.js';
 
 const PROCESS_OWNERS_PATH = path.join(process.cwd(), 'process-owners.json');
@@ -75,7 +75,7 @@ export function canChangeProcessOwnership(topicKey, requesterId) {
   const owners = loadProcessOwners();
   const currentOwner = owners[topicKey]?.owner;
 
-  if (!currentOwner || !currentOwner.startsWith('U')) {
+  if (!currentOwner?.startsWith('U')) {
     return {
       allowed: false,
       reason: 'This process has no owner yet. Only the app creator can make the initial assignment.',
@@ -124,7 +124,7 @@ export function assignProcessOwner(topicName, newOwnerId, requesterId, newKeywor
 
     saveProcessOwners(owners);
 
-    const action = previousOwner && previousOwner.startsWith('U') ? 'transferred' : 'assigned';
+    const action = previousOwner?.startsWith('U') ? 'transferred' : 'assigned';
     return {
       success: true,
       message: `Process ownership of *${key}* ${action} successfully. I'll route questions matching its keywords (${owners[key].keywords.join(', ')}) to <@${newOwnerId}>.`,

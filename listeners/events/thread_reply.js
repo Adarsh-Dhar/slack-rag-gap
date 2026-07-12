@@ -36,7 +36,7 @@ export async function threadReplyCallback({ event, client, logger }) {
   // Parse from raw text — the "assign" regex needs the target <@USERID>
   // mention intact.  cleanText strips mentions, which would break "assign
   // owner of X to <@USER>".
-  const cleanText = text.replace(/<@[A-Z0-9]+>/g, '').trim();
+  const _cleanText = text.replace(/<@[A-Z0-9]+>/g, '').trim();
 
   // Process-owner commands are checked first — "who owns process X" would
   // otherwise be swallowed by the doc-owner "who owns" pattern below.
@@ -56,10 +56,9 @@ export async function threadReplyCallback({ event, client, logger }) {
         const key = processOwnerCmd.topicName.trim().toLowerCase().replace(/\s+/g, '-');
         const entry = owners[key];
         const owner = entry?.owner;
-        const response =
-          owner && owner.startsWith('U')
-            ? `The process owner for *${key}* is <@${owner}>.`
-            : `*${key}* has no assigned process owner yet. Use \`assign process owner of ${processOwnerCmd.topicName} to @user\` to set one.`;
+        const response = owner?.startsWith('U')
+          ? `The process owner for *${key}* is <@${owner}>.`
+          : `*${key}* has no assigned process owner yet. Use \`assign process owner of ${processOwnerCmd.topicName} to @user\` to set one.`;
         await client.chat.postMessage({ channel, thread_ts, text: response });
       } else if (processOwnerCmd.type === 'list') {
         const owners = loadProcessOwners();
@@ -69,7 +68,7 @@ export async function threadReplyCallback({ event, client, logger }) {
             ? '*Process owners:*\n' +
               entries
                 .map(([topic, info]) => {
-                  const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+                  const owner = info.owner?.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
                   return `• *${topic}* — ${owner}`;
                 })
                 .join('\n')
@@ -93,10 +92,9 @@ export async function threadReplyCallback({ event, client, logger }) {
         const key = ownerCmd.docName.endsWith('.md') ? ownerCmd.docName : `${ownerCmd.docName}.md`;
         const entry = owners[key];
         const owner = entry?.owner;
-        const response =
-          owner && owner.startsWith('U')
-            ? `The owner of *${key}* is <@${owner}>.`
-            : `*${key}* has no assigned owner yet. Use \`assign owner of ${ownerCmd.docName} to @user\` to set one.`;
+        const response = owner?.startsWith('U')
+          ? `The owner of *${key}* is <@${owner}>.`
+          : `*${key}* has no assigned owner yet. Use \`assign owner of ${ownerCmd.docName} to @user\` to set one.`;
         await client.chat.postMessage({ channel, thread_ts, text: response });
       } else if (ownerCmd.type === 'list') {
         const owners = loadDocOwners();
@@ -106,7 +104,7 @@ export async function threadReplyCallback({ event, client, logger }) {
             ? '*Document owners:*\n' +
               entries
                 .map(([doc, info]) => {
-                  const owner = info.owner && info.owner.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
+                  const owner = info.owner?.startsWith('U') ? `<@${info.owner}>` : '_unassigned_';
                   return `• *${doc}* — ${owner}`;
                 })
                 .join('\n')

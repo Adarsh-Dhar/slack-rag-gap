@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { withFileLockSync, writeFileAtomic } from '../../agent/store.js';
 
 const DRAFTS_DIR = path.join(process.cwd(), 'docs', 'drafts');

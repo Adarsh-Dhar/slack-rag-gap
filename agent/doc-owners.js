@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { withFileLockSync, writeJSONAtomic } from './store.js';
 
 const DOC_OWNERS_PATH = path.join(process.cwd(), 'doc-owners.json');
@@ -55,7 +55,7 @@ export function canChangeOwnership(docName, requesterId) {
   const currentOwner = owners[docName]?.owner;
 
   // If there's no real owner yet, only the app creator can assign
-  if (!currentOwner || !currentOwner.startsWith('U')) {
+  if (!currentOwner?.startsWith('U')) {
     return {
       allowed: false,
       reason: 'This document has no owner yet. Only the app creator can make the initial assignment.',
@@ -101,7 +101,7 @@ export function assignOwner(docName, newOwnerId, requesterId) {
 
     saveDocOwners(owners);
 
-    const action = previousOwner && previousOwner.startsWith('U') ? 'transferred' : 'assigned';
+    const action = previousOwner?.startsWith('U') ? 'transferred' : 'assigned';
     return {
       success: true,
       message: `Ownership of *${key}* ${action} successfully.`,

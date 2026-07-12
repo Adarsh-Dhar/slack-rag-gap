@@ -1,27 +1,46 @@
 import 'dotenv/config';
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { WebClient } from '@slack/web-api';
-import fs from 'fs';
-import path from 'path';
 import { draftStub, slugify } from './agent/draft-generator.js';
 import { embed, recencyWeight } from './agent/embeddings.js';
 import { recordFailure } from './agent/failure-counter.js';
 import { findNearestCluster, listClusters, resetClusters, upsertCluster } from './agent/gap-store.js';
 import log from './agent/logger.js';
 import { notifyStakeholder, pingForExplanation } from './agent/notify-stakeholder.js';
+import { getOnCallPerson } from './agent/on-call.js';
 import { recordResolution, resolveOwner } from './agent/sme-router.js';
 import { withFileLockSync, writeJSONAtomic } from './agent/store.js';
 import { judgeResolution } from './agent/thread-resolver.js';
+
+/**
+ * Channels whose name matches this pattern are treated as incident channels.
+ * Questions in these channels skip the normal gap-draft flow and are routed
+ * directly to the on-call person, since incident discussions are time-sensitive
+ * and shouldn't wait for the batch gap-detection cycle.
+ */
+const INCIDENT_CHANNEL_PATTERNS = [/incident/i, /oncall/i, /on-call/i, /outage/i, /sev[12]/i];
+
+/**
+ * Returns true if the channel name matches any incident-channel pattern.
+ *
+ * @param {string} channelName
+ * @returns {boolean}
+ */
+function isIncidentChannel(channelName) {
+  return INCIDENT_CHANNEL_PATTERNS.some((p) => p.test(channelName));
+}
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 const LOG_PATH = path.join(process.cwd(), 'query-log.jsonl');
 const FAILED_DRAFTS_PATH = path.join(process.cwd(), 'failed-drafts.json');
-const MAX_CONSECUTIVE_FAILURES = parseInt(process.env.MAX_CONSECUTIVE_FAILURES) || 5;
+const _MAX_CONSECUTIVE_FAILURES = parseInt(process.env.MAX_CONSECUTIVE_FAILURES, 10) || 5;
 
 // Only chase drafts for clusters that look like real, recurring gaps —
 // a single one-off odd question isn't worth bothering a stakeholder over.
-const MIN_HITS_FOR_DRAFT = parseInt(process.env.MIN_HITS_FOR_DRAFT) || 3;
+const MIN_HITS_FOR_DRAFT = parseInt(process.env.MIN_HITS_FOR_DRAFT, 10) || 3;
 const RESOLVED_GAPS_PATH = path.join(process.cwd(), 'resolved-gaps.json');
 
 // Tune by eye once you have real data.
@@ -188,6 +207,31 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
   if (withThread.length === 0) return;
 
   const { channel, thread_ts } = withThread.at(-1);
+
+  // Incident-channel bypass: if the channel looks like an incident
+  // channel, route directly to the on-call person instead of drafting.
+  try {
+    const channelInfo = await slack.conversations.info({ channel });
+    const channelName = channelInfo.channel?.name ?? '';
+    if (isIncidentChannel(channelName)) {
+      const onCall = getOnCallPerson();
+      if (onCall) {
+        log.debug(
+          { module: 'gap-detect', channel, channelName, onCall: onCall.userId },
+          'Incident channel detected — routing to on-call',
+        );
+        await pingForExplanation(
+          slack,
+          { question: cluster.representative, hitCount: cluster.hitCount, channel, thread_ts },
+          onCall.userId,
+          onCall.reason,
+        );
+        return;
+      }
+    }
+  } catch {
+    // If we can't get channel info, continue with normal flow
+  }
 
   try {
     let messages;

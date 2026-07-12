@@ -1,6 +1,9 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { cosineSimilarity, recencyWeight } from './embeddings.js';
+import { resolveBlameOwner } from './git-blame-owner.js';
+import log from './logger.js';
+import { getOnCallPerson } from './on-call.js';
 import { readJSON, withFileLockSync, writeJSONAtomic } from './store.js';
 import { matchDocOwner, matchProcessOwner } from './topic-owner.js';
 
@@ -68,6 +71,48 @@ function historicalResolverWeights(embedding) {
 }
 
 /**
+ * Weight given to recent committers for files related to the question.
+ * Lower than doc-owner weight but above raw historical resolver weight
+ * — a recent committer is a strong signal but not as authoritative as
+ * a human-tagged owner.
+ */
+const RECENT_COMMITTER_WEIGHT = 5;
+
+/**
+ * Tries to find the most recent git committer for files mentioned in
+ * the question text. Uses code-extraction to pull file paths from the
+ * question, then looks up git blame info via GitHub API.
+ *
+ * @param {string} questionText
+ * @param {Record<string, { owner?: string, github?: string }>} docOwners
+ * @returns {Promise<Array<{userId: string|null, weight: number, source: string}>>}
+ */
+export async function recentCommitterWeights(questionText, docOwners = {}) {
+  try {
+    const { extractFilePaths } = await import('./code-extraction.js');
+    const filePaths = extractFilePaths(questionText);
+    if (filePaths.length === 0) return [];
+
+    const votes = [];
+    for (const filePath of filePaths.slice(0, 3)) {
+      // Limit to 3 files to avoid excessive API calls
+      const blame = await resolveBlameOwner(filePath, docOwners);
+      if (blame.userId) {
+        votes.push({
+          userId: blame.userId,
+          weight: RECENT_COMMITTER_WEIGHT,
+          source: blame.reason,
+        });
+      }
+    }
+    return votes;
+  } catch (err) {
+    log.debug({ module: 'sme-router', err: err.message }, 'recentCommitterWeights failed');
+    return [];
+  }
+}
+
+/**
  * Given a new gap's representative question (and its embedding), decides
  * who to route the draft to by combining three signals:
  *
@@ -106,7 +151,21 @@ export async function resolveOwner(embedding, questionText) {
 
   votes.push(...historicalResolverWeights(embedding));
 
-  if (votes.length === 0) return fallback('no tag, doc-owner, or resolution history match');
+  // Try git-blame for files mentioned in the question
+  try {
+    votes.push(...(await recentCommitterWeights(questionText)));
+  } catch {
+    // Non-critical — continue without git-blame votes
+  }
+
+  if (votes.length === 0) {
+    // Try on-call as final fallback before the default stakeholder
+    const onCall = getOnCallPerson();
+    if (onCall) {
+      return { userId: onCall.userId, reason: onCall.reason };
+    }
+    return fallback('no tag, doc-owner, or resolution history match');
+  }
 
   const tally = new Map();
   const reasonsByUser = new Map();
@@ -118,6 +177,17 @@ export async function resolveOwner(embedding, questionText) {
   }
 
   const [bestUser, bestScore] = [...tally.entries()].sort((a, b) => b[1] - a[1])[0];
+
+  // UNASSIGNED guard: if the best candidate is a known unassigned
+  // placeholder (e.g. "unassigned" string), skip to fallback
+  if (!bestUser || bestUser === 'unassigned' || bestUser === 'UNASSIGNED') {
+    const onCall = getOnCallPerson();
+    if (onCall) {
+      return { userId: onCall.userId, reason: `on-call fallback (best was unassigned)` };
+    }
+    return fallback('best candidate is unassigned');
+  }
+
   const reasons = [...reasonsByUser.get(bestUser)].join(' + ');
   return { userId: bestUser, reason: `${reasons} (score=${bestScore.toFixed(2)})` };
 }

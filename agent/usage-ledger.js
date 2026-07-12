@@ -1,4 +1,4 @@
-import path from 'path';
+import path from 'node:path';
 import { readJSON, withFileLockSync, writeJSONAtomic } from './store.js';
 
 const DEFAULT_LEDGER_PATH = path.resolve(process.cwd(), 'doc-usage.json');
