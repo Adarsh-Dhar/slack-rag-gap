@@ -91,6 +91,14 @@ cd my-bolt-js-assistant
 ```sh
 npm install
 ```
+
+#### On-call routing (optional)
+
+Copy `.on-call.json.sample` to `on-call.json` and fill in real Slack user IDs to enable on-call routing.
+
+```sh
+cp .on-call.json.sample on-call.json
+```
 </details>
 
 ## Providers

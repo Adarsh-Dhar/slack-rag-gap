@@ -133,7 +133,7 @@ export async function recentCommitterWeights(questionText, docOwners = {}) {
 export async function resolveOwner(embedding, questionText) {
   const votes = [];
 
-  const processOwnerMatch = matchProcessOwner(questionText);
+  const processOwnerMatch = await matchProcessOwner(questionText);
   if (processOwnerMatch) {
     votes.push({ userId: processOwnerMatch.userId, weight: PROCESS_OWNER_WEIGHT, source: processOwnerMatch.reason });
   }

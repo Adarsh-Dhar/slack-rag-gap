@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { checkOwnerLiveness } from './doc-owners.js';
 import { cosineSimilarity, embed } from './embeddings.js';
 
 const PROCESS_OWNERS_PATH = path.join(process.cwd(), 'process-owners.json');
@@ -24,15 +25,17 @@ function loadJson(filePath) {
  * without needing to regenerate embeddings whenever it changes.
  *
  * @param {string} question
- * @returns {{userId: string, reason: string}|null}
+ * @returns {Promise<{userId: string, reason: string}|null>}
  */
-export function matchProcessOwner(question) {
+export async function matchProcessOwner(question) {
   const owners = loadJson(PROCESS_OWNERS_PATH);
   const lowerQuestion = question.toLowerCase();
 
   for (const [topic, { owner, keywords }] of Object.entries(owners)) {
     const hit = (keywords || []).find((kw) => lowerQuestion.includes(kw.toLowerCase()));
     if (hit) {
+      const alive = await checkOwnerLiveness(owner);
+      if (!alive) continue; // skip a departed tagged owner, let other signals win
       return { userId: owner, reason: `tagged process owner (${topic}, matched "${hit}")` };
     }
   }

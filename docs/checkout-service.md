@@ -1,3 +1,8 @@
+---
+title: Checkout Service
+status: approved
+covers: ["services/checkout/index.ts", "services/checkout/retry.ts", "services/checkout/config.ts"]
+---
 # Checkout Service
 
 ## Overview

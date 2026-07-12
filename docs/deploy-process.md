@@ -1,3 +1,8 @@
+---
+title: Deploy Process
+status: approved
+covers: ["ci/deploy.yml", "ci/canary.sh", "services/deploy/index.ts"]
+---
 # Deploy Process
 
 ## Overview

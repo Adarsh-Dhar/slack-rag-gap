@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WebClient } from '@slack/web-api';
+import { extractCodeSnippets } from './agent/code-extraction.js';
 import { draftStub, slugify } from './agent/draft-generator.js';
 import { embed, recencyWeight } from './agent/embeddings.js';
 import { recordFailure } from './agent/failure-counter.js';
@@ -31,6 +32,15 @@ const INCIDENT_CHANNEL_PATTERNS = [/incident/i, /oncall/i, /on-call/i, /outage/i
 function isIncidentChannel(channelName) {
   return INCIDENT_CHANNEL_PATTERNS.some((p) => p.test(channelName));
 }
+
+/**
+ * In-memory dedupe set for incident-channel pings. Prevents re-pinging
+ * on-call on every scheduler tick for the same question. For persistence
+ * across restarts, this should eventually be moved to a file like
+ * resolved-gaps.json — but a duplicate ping after restart is a minor
+ * annoyance, not a correctness bug.
+ */
+const incidentPings = new Set();
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
@@ -213,7 +223,8 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
   try {
     const channelInfo = await slack.conversations.info({ channel });
     const channelName = channelInfo.channel?.name ?? '';
-    if (isIncidentChannel(channelName)) {
+    const incidentAlreadyPinged = incidentPings.has(cluster.representative);
+    if (isIncidentChannel(channelName) && !incidentAlreadyPinged) {
       const onCall = getOnCallPerson();
       if (onCall) {
         log.debug(
@@ -226,7 +237,11 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
           onCall.userId,
           onCall.reason,
         );
-        return;
+        incidentPings.add(cluster.representative);
+        // Deliberately fall through — don't return. Once the thread gets a reply,
+        // the normal judgeResolution/draftStub path below still picks it up on a
+        // later tick, so an incident question can both page someone immediately
+        // AND become a permanent doc once it's answered.
       }
     }
   } catch {
@@ -280,11 +295,13 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
     const topicEmbedding = await embed(cluster.representative);
 
     const { permalink } = await slack.chat.getPermalink({ channel, message_ts: thread_ts });
+    const codeSnippets = extractCodeSnippets(resolvingText);
     const draft = await draftStub({
       question: cluster.representative,
       resolvingText,
       permalink,
       hitCount: cluster.hitCount,
+      codeSnippets,
     });
 
     // Skip drafts whose slug matches an already-resolved gap
