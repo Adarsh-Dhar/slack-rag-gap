@@ -1,10 +1,7 @@
 ---
-title: Batch Email Notification Process Correction
-status: pending_review
+title: Payments Runbook
+status: approved
 covers: ["services/payments/index.ts", "services/payments/batch.ts"]
-edit_of: payments-runbook.md
-source_thread: https://e0bf8agtccf-iceki877.slack.com/archives/C0BF8AEMVL7/p1783631859583039?thread_ts=1783631859.583039&cid=C0BF8AEMVL7
-created_at: 2026-07-09T21:18:09.057Z
 ---
 # Payments Runbook
 

@@ -1,0 +1,7 @@
+{
+  "rotation": [
+    { "userId": "U0BFRJU9NLR", "label": "Alice", "startDay": "monday", "endDay": "wednesday" },
+    { "userId": "U0BFRJU9NLR", "label": "Bob", "startDay": "thursday", "endDay": "sunday" }
+  ],
+  "fallback": "U0BFRJU9NLR"
+}

@@ -1,0 +1,14 @@
+{
+  "checkout-service.md": {
+    "owner": "U0BFRJU9NLR",
+    "topic_tags": ["checkout", "retry logic", "cart", "inventory hold", "order creation"]
+  },
+  "deploy-process.md": {
+    "owner": "U0BFRJU9NLR",
+    "topic_tags": ["deploy", "deployment pipeline", "canary rollout", "CI/CD", "release process"]
+  },
+  "payments-runbook.md": {
+    "owner": "U0BFRJU9NLR",
+    "topic_tags": ["payments", "stripe", "refund", "webhook", "authorization capture"]
+  }
+}

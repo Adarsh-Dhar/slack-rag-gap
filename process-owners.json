@@ -1,0 +1,10 @@
+{
+  "checkout-retry-policy": {
+    "owner": "U0BFRJU9NLR",
+    "keywords": ["checkout retry", "why does checkout retry", "retry logic", "retries 3 times"]
+  },
+  "deploy-pipeline": {
+    "owner": "U0BFRJU9NLR",
+    "keywords": ["deploy process", "canary rollout", "how do we deploy", "deployment pipeline"]
+  }
+}

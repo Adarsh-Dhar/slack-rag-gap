@@ -6,10 +6,10 @@ import { cosineSimilarity, embed } from './embeddings.js';
 const PROCESS_OWNERS_PATH = path.join(process.cwd(), 'process-owners.json');
 const DOC_OWNERS_PATH = path.join(process.cwd(), 'doc-owners.json');
 
-// Doc-owner matches use the same "same general topic area" bar as
-// sme-router.js's historical-resolver matching, not the tighter
-// gap-clustering bar in gap-detect.js.
-const DOC_OWNER_SIMILARITY_THRESHOLD = 0.78;
+// Lower than sme-router.js's 0.78 (question-vs-question) because we're
+// comparing a full question embedding against a short tag-string embedding.
+// Empirically: correct matches land 0.52-0.74, unrelated queries 0.04-0.15.
+const DOC_OWNER_SIMILARITY_THRESHOLD = 0.45;
 
 function loadJson(filePath) {
   if (!fs.existsSync(filePath)) return {};
