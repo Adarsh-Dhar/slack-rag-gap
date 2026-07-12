@@ -41,6 +41,8 @@
         "app_mention",
         "assistant_thread_context_changed",
         "assistant_thread_started",
+        "message.channels",
+        "message.groups",
         "message.im"
       ]
     },

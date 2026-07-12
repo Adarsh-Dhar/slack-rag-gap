@@ -1,5 +1,7 @@
 import dotenv from 'dotenv';
+
 dotenv.config();
+
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,7 +39,7 @@ async function withTimeout(promise, timeoutMs, operationName) {
   return Promise.race([
     promise,
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`${operationName} timeout after ${timeoutMs}ms`)), timeoutMs)
+      setTimeout(() => reject(new Error(`${operationName} timeout after ${timeoutMs}ms`)), timeoutMs),
     ),
   ]);
 }
@@ -151,12 +153,18 @@ async function clusterQuestions(queries) {
 
   for (let i = 0; i < queries.length; i++) {
     const entry = queries[i];
-    log.debug({ module: 'gap-detect', index: i, total: queries.length, question: entry.question.substring(0, 50) }, 'Embedding question');
+    log.debug(
+      { module: 'gap-detect', index: i, total: queries.length, question: entry.question.substring(0, 50) },
+      'Embedding question',
+    );
     let embedding;
     try {
       embedding = await withTimeout(embed(entry.question), 15_000, 'Embed question');
     } catch (err) {
-      log.warn({ module: 'gap-detect', index: i, question: entry.question.substring(0, 50), err: err.message }, 'Skipping question due to embed failure');
+      log.warn(
+        { module: 'gap-detect', index: i, question: entry.question.substring(0, 50), err: err.message },
+        'Skipping question due to embed failure',
+      );
       continue;
     }
 
@@ -186,7 +194,7 @@ async function clusterQuestions(queries) {
           channel: newMember.channel ?? '',
         }),
         10_000,
-        'upsertCluster'
+        'upsertCluster',
       );
     } else {
       await withTimeout(
@@ -198,7 +206,7 @@ async function clusterQuestions(queries) {
           channel: newMember.channel ?? '',
         }),
         10_000,
-        'upsertCluster'
+        'upsertCluster',
       );
     }
   }
@@ -235,7 +243,7 @@ function rankClusters(clusters) {
  * @param {WebClient} slack - Slack WebClient instance
  */
 async function checkTopGapsForDrafts(ranked, slack) {
-  const botUserId = (await slack.auth.test())['user_id'];
+  const botUserId = (await slack.auth.test()).user_id;
   const resolvedSlugs = loadResolvedSlugs();
 
   for (const cluster of ranked) {
@@ -267,7 +275,10 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
   // below fires every scheduler cycle for gaps that already have a draft.
   log.debug({ module: 'gap-detect', cluster: cluster.representative }, 'Checking resolved slug match');
   const matchesResolved = clusterMatchesResolvedSlug(cluster.representative, resolvedSlugs);
-  log.debug({ module: 'gap-detect', cluster: cluster.representative, matchesResolved }, 'Resolved slug match check complete');
+  log.debug(
+    { module: 'gap-detect', cluster: cluster.representative, matchesResolved },
+    'Resolved slug match check complete',
+  );
   if (matchesResolved) {
     log.debug(
       { module: 'gap-detect', cluster: cluster.representative },
@@ -288,11 +299,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
   // Incident-channel bypass: if the channel looks like an incident
   // channel, route directly to the on-call person instead of drafting.
   try {
-    const channelInfo = await withTimeout(
-      slack.conversations.info({ channel }),
-      10_000,
-      'conversations.info'
-    );
+    const channelInfo = await withTimeout(slack.conversations.info({ channel }), 10_000, 'conversations.info');
     const channelName = channelInfo.channel?.name ?? '';
     const incidentAlreadyPinged = incidentPings.has(cluster.representative);
     if (isIncidentChannel(channelName) && !incidentAlreadyPinged) {
@@ -326,7 +333,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
       const result = await withTimeout(
         slack.conversations.replies({ channel, ts: thread_ts }),
         10_000,
-        'conversations.replies'
+        'conversations.replies',
       );
       messages = result.messages;
     } catch (error) {
@@ -342,7 +349,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
             inclusive: true,
           }),
           10_000,
-          'conversations.history'
+          'conversations.history',
         );
         messages = historyResult.messages;
       } else {
@@ -354,11 +361,14 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
       .filter((m) => m.user && m.user !== botUserId && m.ts !== thread_ts)
       .map((m) => ({ user: m.user, text: m.text }));
 
-    log.debug({ module: 'gap-detect', cluster: cluster.representative, replyCount: replies.length }, 'Calling judgeResolution');
+    log.debug(
+      { module: 'gap-detect', cluster: cluster.representative, replyCount: replies.length },
+      'Calling judgeResolution',
+    );
     const { resolved, resolvingText, resolvingUser } = await withTimeout(
       judgeResolution(cluster.representative, replies),
       30_000,
-      'judgeResolution LLM call'
+      'judgeResolution LLM call',
     );
     log.debug({ module: 'gap-detect', cluster: cluster.representative, resolved }, 'judgeResolution completed');
 
@@ -371,7 +381,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
       const { userId, reason } = await withTimeout(
         resolveOwner(topicEmbedding, cluster.representative),
         30_000,
-        'resolveOwner'
+        'resolveOwner',
       );
       await pingForExplanation(
         slack,
@@ -387,7 +397,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
     const { permalink } = await withTimeout(
       slack.chat.getPermalink({ channel, message_ts: thread_ts }),
       10_000,
-      'chat.getPermalink'
+      'chat.getPermalink',
     );
     const codeSnippets = extractCodeSnippets(resolvingText);
     const draft = await withTimeout(
@@ -399,7 +409,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
         codeSnippets,
       }),
       30_000,
-      'draftStub LLM call'
+      'draftStub LLM call',
     );
 
     // Skip drafts whose slug matches an already-resolved gap
@@ -411,7 +421,7 @@ async function tryDraftFromCluster(cluster, resolvedSlugs, botUserId) {
     const { userId, reason } = await withTimeout(
       resolveOwner(topicEmbedding, cluster.representative),
       20_000,
-      'resolveOwner'
+      'resolveOwner',
     );
     await notifyStakeholder(slack, { ...draft, permalink }, userId, reason);
     markResolved(draft.slug);

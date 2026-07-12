@@ -2,6 +2,66 @@ import { callLLM } from '../../agent/llm-caller.js';
 import { feedbackBlock } from '../views/feedback_block.js';
 
 /**
+ * Parses a doc-owner command from text.
+ * Supports: "assign owner of <doc> to @user", "who owns <doc>", "list owners"
+ *
+ * @param {string} text
+ * @returns {{type: 'assign'|'who'|'list', docName?: string, newOwnerId?: string}|null}
+ */
+export function parseOwnerCommand(text) {
+  const lowerText = text.toLowerCase().trim();
+
+  // "assign owner of <doc> to @user"
+  const assignMatch = lowerText.match(/assign\s+owner\s+of\s+(\S+)\s+to\s+<@(\w+)>/);
+  if (assignMatch) {
+    return { type: 'assign', docName: assignMatch[1], newOwnerId: assignMatch[2] };
+  }
+
+  // "who owns <doc>"
+  const whoMatch = lowerText.match(/who\s+owns\s+(\S+)/);
+  if (whoMatch) {
+    return { type: 'who', docName: whoMatch[1] };
+  }
+
+  // "list owners"
+  if (lowerText.includes('list') && lowerText.includes('owner')) {
+    return { type: 'list' };
+  }
+
+  return null;
+}
+
+/**
+ * Parses a process-owner command from text.
+ * Supports: "assign process owner of <topic> to @user", "who owns process <topic>", "list process owners"
+ *
+ * @param {string} text
+ * @returns {{type: 'assign'|'who'|'list', topicName?: string, newOwnerId?: string, keywords?: string[]}|null}
+ */
+export function parseProcessOwnerCommand(text) {
+  const lowerText = text.toLowerCase().trim();
+
+  // "assign process owner of <topic> to @user"
+  const assignMatch = lowerText.match(/assign\s+process\s+owner\s+of\s+(\S+)\s+to\s+<@(\w+)>/);
+  if (assignMatch) {
+    return { type: 'assign', topicName: assignMatch[1], newOwnerId: assignMatch[2] };
+  }
+
+  // "who owns process <topic>"
+  const whoMatch = lowerText.match(/who\s+owns\s+process\s+(\S+)/);
+  if (whoMatch) {
+    return { type: 'who', topicName: whoMatch[1] };
+  }
+
+  // "list process owners"
+  if (lowerText.includes('list') && lowerText.includes('process') && lowerText.includes('owner')) {
+    return { type: 'list' };
+  }
+
+  return null;
+}
+
+/**
  * Handles the event when the app is mentioned in a Slack conversation
  * and generates an AI response.
  *

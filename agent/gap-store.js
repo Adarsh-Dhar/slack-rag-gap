@@ -34,19 +34,24 @@ async function getCollection() {
 }
 
 /**
- * Wipes and recreates the `gap-clusters` collection. Called at the start of
- * every gap-detect run — the clustering is a full rebuild from query-log.jsonl
- * each time, so the collection is transient storage.
+ * Clears the `gap-clusters` collection instead of deleting it. Called at the
+ * start of every gap-detect run — the clustering is a full rebuild from
+ * query-log.jsonl each time, so the collection is transient storage.
+ *
+ * We use delete() instead of deleteCollection() to avoid the ChromaNotFoundError
+ * that occurs when the collection reference becomes stale during long-running
+ * operations with many timeouts.
  *
  * @returns {Promise<import('chromadb').Collection>}
  */
 export async function resetClusters() {
+  const collection = await getCollection();
   try {
-    await chroma.deleteCollection({ name: COLLECTION_NAME });
+    await collection.delete();
   } catch {
-    // Collection doesn't exist yet — fine, getOrCreateCollection below handles it.
+    // Collection is empty or doesn't exist yet — fine.
   }
-  return getCollection();
+  return collection;
 }
 
 /**
@@ -63,7 +68,17 @@ export async function resetClusters() {
  */
 export async function findNearestCluster(collection, embedding) {
   // Chroma throws if you query an empty collection — guard with count().
-  const count = await collection.count();
+  // Retry a few times to handle transient collection state after recreation.
+  let count;
+  for (let i = 0; i < 3; i++) {
+    try {
+      count = await collection.count();
+      break;
+    } catch (err) {
+      if (i === 2) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
   if (count === 0) return null;
 
   const results = await collection.query({
@@ -114,7 +129,17 @@ export async function upsertCluster(collection, id, centroid, metadata) {
  * @returns {Promise<{id: string, embedding: number[]|null, metadata: object}[]>}
  */
 export async function listClusters(collection) {
-  const count = await collection.count();
+  // Retry a few times to handle transient collection state after recreation.
+  let count;
+  for (let i = 0; i < 3; i++) {
+    try {
+      count = await collection.count();
+      break;
+    } catch (err) {
+      if (i === 2) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
   if (count === 0) return [];
 
   const results = await collection.get({

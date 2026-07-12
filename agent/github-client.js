@@ -36,7 +36,12 @@ export async function githubFetch(url, init = {}) {
       if (res.status === 204) return null;
       return res.json();
     },
-    { retries: 3, baseDelayMs: 500, isRetryable: (err) => err?.status === 429 || (typeof err?.status === 'number' && err.status >= 500), label: 'githubFetch' }
+    {
+      retries: 3,
+      baseDelayMs: 500,
+      isRetryable: (err) => err?.status === 429 || (typeof err?.status === 'number' && err.status >= 500),
+      label: 'githubFetch',
+    },
   );
 }
 

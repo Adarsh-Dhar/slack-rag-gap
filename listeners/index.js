@@ -1,8 +1,8 @@
+import log from '../agent/logger.js';
 import * as actions from './actions/index.js';
 import * as assistant from './assistant/index.js';
 import * as events from './events/index.js';
 import * as views from './views/index.js';
-import log from '../agent/logger.js';
 
 /**
  * @param {import("@slack/bolt").App} app
@@ -20,7 +20,7 @@ export const registerListeners = (app) => {
     console.log('Team ID:', body?.team_id);
     console.log('Full body:', JSON.stringify(body, null, 2));
     console.log('=== END RAW PAYLOAD ===');
-    
+
     log.info(
       {
         module: 'listeners',

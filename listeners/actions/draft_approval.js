@@ -63,10 +63,9 @@ export const draftApprovalCallback = async ({ ack, body, client, logger }) => {
     const draftPath = path.join(DRAFTS_DIR, `${slug}.md`);
 
     if (!fs.existsSync(draftPath)) {
-      await client.chat.postMessage({
+      await client.chat.delete({
         channel: channel_id,
-        thread_ts: message_ts,
-        text: 'Draft not found — it may have already been handled.',
+        ts: message_ts,
       });
       return;
     }
@@ -99,10 +98,9 @@ export const draftApprovalCallback = async ({ ack, body, client, logger }) => {
       });
 
       if (!claimed) {
-        await client.chat.postMessage({
+        await client.chat.delete({
           channel: channel_id,
-          thread_ts: message_ts,
-          text: 'Draft not found — it may have already been handled.',
+          ts: message_ts,
         });
         return;
       }
@@ -135,10 +133,9 @@ export const draftApprovalCallback = async ({ ack, body, client, logger }) => {
       });
 
       if (!removed) {
-        await client.chat.postMessage({
+        await client.chat.delete({
           channel: channel_id,
-          thread_ts: message_ts,
-          text: 'Draft not found — it may have already been handled.',
+          ts: message_ts,
         });
         return;
       }

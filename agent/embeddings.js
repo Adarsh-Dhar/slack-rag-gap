@@ -1,5 +1,5 @@
 import { getOpenAI } from './openai-client.js';
-import { withRetry, isRetryableLLMError } from './with-retry.js';
+import { isRetryableLLMError, withRetry } from './with-retry.js';
 
 // Same client/model as agent/rag.js, ingest.js, and gap-detect.js — one place
 // so routing logic (sme-router.js) and gap clustering (gap-detect.js) don't
