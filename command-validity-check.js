@@ -51,7 +51,7 @@ async function checkCommands(title, body) {
  * Scans all markdown docs in the docs/ directory for command validity
  * and writes a JSON report.
  */
-async function main() {
+export async function main() {
   if (!fs.existsSync(DOCS_DIR)) {
     log.debug({ module: 'command-validity-check' }, 'No docs directory found');
     return;

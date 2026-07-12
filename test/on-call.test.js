@@ -2,7 +2,7 @@ import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getOnCallPerson } from '../agent/agent/on-call.js';
+import { getOnCallPerson } from '../agent/on-call.js';
 
 const ON_CALL_PATH = path.join(process.cwd(), 'on-call.json');
 let originalOnCallExists = false;

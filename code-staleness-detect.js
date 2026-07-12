@@ -13,7 +13,7 @@ const REPORT_PATH = path.join(process.cwd(), 'code-staleness-report.json');
  * (files that haven't been updated in the repo within the threshold)
  * and writes a JSON report to code-staleness-report.json.
  */
-async function main() {
+export async function main() {
   log.debug(
     { module: 'code-staleness-detect', docsDir: DOCS_DIR, staleDays: STALE_DAYS },
     'Starting code staleness scan',

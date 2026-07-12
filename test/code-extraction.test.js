@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractCodeSnippets, extractFilePaths } from '../agent/agent/code-extraction.js';
+import { extractCodeSnippets, extractFilePaths } from '../agent/code-extraction.js';
 
 describe('code-extraction / extractCodeSnippets', () => {
   test('extracts fenced code blocks', () => {

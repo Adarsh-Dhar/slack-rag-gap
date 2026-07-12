@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { resetOpenAIClient } from '../agent/agent/openai-client.js';
+import { resetOpenAIClient } from '../agent/openai-client.js';
 
 // Helper: temporarily replace getOpenAI with a mock by using the module's
 // resetOpenAIClient + env var trick. The openai-client.js creates a client
@@ -36,19 +36,19 @@ function withMockedLLM(responseObj, callback) {
 
 describe('doc-classifier / classifyDoc', () => {
   test('classifyDoc is exported as a function', async () => {
-    const { classifyDoc } = await import('../agent/agent/doc-classifier.js');
+    const { classifyDoc } = await import('../agent/doc-classifier.js');
     assert.equal(typeof classifyDoc, 'function');
   });
 
   test('classifyDoc accepts title and body params', async () => {
     // This test verifies the function signature without actually calling the LLM
-    const { classifyDoc } = await import('../agent/agent/doc-classifier.js');
+    const { classifyDoc } = await import('../agent/doc-classifier.js');
     assert.equal(classifyDoc.length, 1); // single object param
   });
 
   test('classifyDoc truncates body longer than 3000 chars', async () => {
     // Verify the truncation logic by checking the function source
-    const { classifyDoc } = await import('../agent/agent/doc-classifier.js');
+    const { classifyDoc } = await import('../agent/doc-classifier.js');
     const fnStr = classifyDoc.toString();
     assert.ok(fnStr.includes('3000'), 'Function should reference 3000 char truncation limit');
     assert.ok(fnStr.includes('truncated'), 'Function should include truncation marker');

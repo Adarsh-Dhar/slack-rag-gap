@@ -5,13 +5,12 @@ import { embed } from './embeddings.js';
 import log from './logger.js';
 import { updateUsageLedger } from './usage-ledger.js';
 
-const chromaUrl = (process.env.CHROMA_URL ?? 'http://127.0.0.1:8000').replace('localhost', '127.0.0.1');
+const chromaUrl = process.env.CHROMA_URL ?? 'http://127.0.0.1:8000';
 const chromaHost = new URL(chromaUrl);
 const chroma = new ChromaClient({
   host: chromaHost.hostname,
-  port: parseInt(chromaUrl.split(':').pop(), 10) || 8000,
+  port: parseInt(chromaHost.port, 10) || 8000,
   ssl: chromaHost.protocol === 'https:',
-  auth: undefined,
 });
 const COLLECTION_NAME = 'docs';
 
@@ -80,9 +79,9 @@ export async function retrieveContext(question, { channel, thread_ts, source } =
   // Log the full raw text here, once, instead of relying on each listener
   // to log it independently.
   logIncomingMessage(question, { channel, thread_ts, source });
-  const embedding = await embed(question);
 
   try {
+    const embedding = await embed(question);
     const collection = await chroma.getOrCreateCollection({
       name: COLLECTION_NAME,
       embeddingFunction: noopEmbeddingFunction,
@@ -121,8 +120,8 @@ export async function retrieveContext(question, { channel, thread_ts, source } =
 
     return { context, sources, topScore, hasResults };
   } catch (error) {
-    log.error({ module: 'rag', err: error.message }, 'ChromaDB error during retrieval');
-    // Return empty results if Chroma fails, allowing the bot to still function
+    log.error({ module: 'rag', err: error.message }, 'RAG retrieval error');
+    // Return empty results if retrieval fails, allowing the bot to still function
     logQuery({
       question,
       topScore: null,
@@ -131,7 +130,7 @@ export async function retrieveContext(question, { channel, thread_ts, source } =
       channel,
       thread_ts,
       timestamp: new Date().toISOString(),
-      chromaError: error.message,
+      retrievalError: error.message,
     });
     return { context: '', sources: [], topScore: null, hasResults: false };
   }

@@ -1,4 +1,4 @@
-import { callLLM } from '../../agent/agent/llm-caller.js';
+import { callLLM } from '../../agent/llm-caller.js';
 import { feedbackBlock } from '../views/feedback_block.js';
 
 /** @param {number} ms */

@@ -36,7 +36,7 @@ async function checkUserLiveness(userId) {
  * Returns a report of which owners are still active and which have
  * departed or are unreachable.
  */
-async function main() {
+export async function main() {
   if (!fs.existsSync(docOwnersPath)) {
     log.debug({ module: 'owner-liveness-check' }, 'No doc-owners.json found');
     return;
