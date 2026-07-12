@@ -1,20 +1,20 @@
 {
   "checkout-service.md": {
-    "citedCount": 5,
+    "citedCount": 12,
     "followUpCount": 0,
     "correctionCount": 0,
-    "lastCited": "2026-07-11T18:45:05.064Z"
+    "lastCited": "2026-07-12T08:57:22.803Z"
   },
   "payments-runbook.md": {
-    "citedCount": 6,
+    "citedCount": 15,
     "followUpCount": 0,
     "correctionCount": 0,
-    "lastCited": "2026-07-11T18:46:50.476Z"
+    "lastCited": "2026-07-12T08:57:22.803Z"
   },
   "deploy-process.md": {
-    "citedCount": 1,
+    "citedCount": 9,
     "followUpCount": 0,
     "correctionCount": 0,
-    "lastCited": "2026-07-11T18:46:50.476Z"
+    "lastCited": "2026-07-12T08:57:22.803Z"
   }
 }

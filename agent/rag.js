@@ -37,7 +37,7 @@ const LOG_PATH = path.join(process.cwd(), 'query-log.jsonl');
 // while truly off-topic queries (e.g. asking about things not in any doc)
 // tend to score even higher. Set conservatively high so we don't refuse
 // valid questions; lower it once you have more docs and query data.
-const RELEVANCE_THRESHOLD = 1.8;
+const RELEVANCE_THRESHOLD = 1.2;
 
 function logQuery(entry) {
   fs.appendFileSync(LOG_PATH, `${JSON.stringify(entry)}\n`);

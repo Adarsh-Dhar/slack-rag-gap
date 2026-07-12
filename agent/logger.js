@@ -1,6 +1,6 @@
 import pino from 'pino';
 
-const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
+const LOG_LEVEL = process.env.LOG_LEVEL ?? 'debug';
 
 /**
  * Shared structured logger for the entire application.
